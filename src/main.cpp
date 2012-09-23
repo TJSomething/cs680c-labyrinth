@@ -40,6 +40,8 @@ void render();
 void update();
 void reshape(int n_w, int n_h);
 void keyboard(unsigned char key, int x_pos, int y_pos);
+void passiveMotion(int, int);
+void specialKey(int, int, int);
 
 //--Resource management
 bool initialize();
@@ -48,6 +50,13 @@ void cleanUp();
 //--Random time things
 float getDT();
 std::chrono::time_point<std::chrono::high_resolution_clock> t1,t2;
+
+// Board angle
+const float speed = 0.01f;
+float angleX = 0.0f;
+float angleZ = 0.0f;
+const float angleXLimit = 15;
+const float angleZLimit = 15;
 
 
 //--Main
@@ -58,7 +67,7 @@ int main(int argc, char **argv)
     glutInitDisplayMode(GLUT_DOUBLE | GLUT_DEPTH);
     glutInitWindowSize(w, h);
     // Name and create the Window
-    glutCreateWindow("Matrix Example");
+    glutCreateWindow("PA1: Control Demo");
 
     // Now that the window is created the GL context is fully set up
     // Because of that we can now initialize GLEW to prepare work with shaders
@@ -75,6 +84,8 @@ int main(int argc, char **argv)
     glutReshapeFunc(reshape);// Called if the window is resized
     glutIdleFunc(update);// Called if there is nothing else to do
     glutKeyboardFunc(keyboard);// Called if there is keyboard input
+    glutPassiveMotionFunc(passiveMotion);
+    glutSpecialFunc(specialKey);
 
     // Initialize all of our resources(shaders, geometry)
     bool init = initialize();
@@ -139,11 +150,12 @@ void render()
 void update()
 {
     //total time
-    static float angle = 0.0;
     float dt = getDT();// if you have anything moving, use dt.
 
-    angle += dt * M_PI/2; //move through 90 degrees a second
-    model = glm::translate( glm::mat4(1.0f), glm::vec3(4.0 * sin(angle), 0.0, 4.0 * cos(angle)));
+    //angle += dt * M_PI/2; //move through 90 degrees a second
+    model = //glm::translate( glm::mat4(1.0f), glm::vec3(4.0 * sin(angle), 0.0, 4.0 * cos(angle)));
+    		glm::rotate(glm::mat4(1.0), angleZ, glm::vec3(0.0f, 0.0f, 1.0f)) *
+    		glm::rotate(glm::mat4(1.0), angleX, glm::vec3(1.0f, 0.0f, 0.0f));
     // Update the state of the scene
     glutPostRedisplay();//call the display callback
 }
@@ -161,13 +173,61 @@ void reshape(int n_w, int n_h)
 
 }
 
+void changeAngle(int x, int y)
+{
+	angleX += y * M_PI*0.01;
+	angleZ += x * M_PI*0.01;
+	if (angleX > angleXLimit)
+		angleX = angleXLimit;
+	else if (angleX < -angleXLimit)
+		angleX = -angleXLimit;
+	if (angleZ > angleZLimit)
+		angleZ = angleZLimit;
+	else if (angleZ < -angleZLimit)
+		angleZ = -angleZLimit;
+}
+
 void keyboard(unsigned char key, int x_pos, int y_pos)
 {
-    // Handle keyboard input
     if(key == 27)//ESC
     {
         exit(0);
     }
+}
+
+void specialKey(int key, int x, int y)
+{
+	std::cout << key << std::endl;
+	switch (key)
+	{
+	case GLUT_KEY_UP:
+		changeAngle(0,1);
+		break;
+	case GLUT_KEY_DOWN:
+		changeAngle(0,-1);
+		break;
+	case GLUT_KEY_LEFT:
+		changeAngle(-1,0);
+		break;
+	case GLUT_KEY_RIGHT:
+		changeAngle(1,0);
+		break;
+	}
+}
+
+void passiveMotion(int x, int y)
+{
+    static int centerX = glutGet(GLUT_WINDOW_WIDTH) / 2;
+    static int centerY = glutGet(GLUT_WINDOW_HEIGHT) / 2;
+    static bool checkingForMotion = true;
+	changeAngle(centerX-x, centerY-y);
+
+    if (checkingForMotion)
+    {
+    	glutWarpPointer(centerX, centerY);
+    }
+
+    checkingForMotion = !checkingForMotion;
 }
 
 bool initialize()
@@ -176,53 +236,53 @@ bool initialize()
 
     //this defines a cube, this is why a model loader is nice
     //you can also do this with a draw elements and indices, try to get that working
-    Vertex geometry[] = { {{-1.0, -1.0, -1.0}, {0.0, 0.0, 0.0}},
-                          {{-1.0, -1.0, 1.0}, {0.0, 0.0, 1.0}},
-                          {{-1.0, 1.0, 1.0}, {0.0, 1.0, 1.0}},
+    Vertex geometry[] = { {{-10.0, -1.0, -10.0}, {0.0, 0.0, 0.0}},
+                          {{-10.0, -1.0, 10.0}, {0.0, 0.0, 1.0}},
+                          {{-10.0, 1.0, 10.0}, {0.0, 1.0, 1.0}},
 
-                          {{1.0, 1.0, -1.0}, {1.0, 1.0, 0.0}},
-                          {{-1.0, -1.0, -1.0}, {0.0, 0.0, 0.0}},
-                          {{-1.0, 1.0, -1.0}, {0.0, 1.0, 0.0}},
+                          {{10.0, 1.0, -10.0}, {1.0, 1.0, 0.0}},
+                          {{-10.0, -1.0, -10.0}, {0.0, 0.0, 0.0}},
+                          {{-10.0, 1.0, -10.0}, {0.0, 1.0, 0.0}},
                           
-                          {{1.0, -1.0, 1.0}, {1.0, 0.0, 1.0}},
-                          {{-1.0, -1.0, -1.0}, {0.0, 0.0, 0.0}},
-                          {{1.0, -1.0, -1.0}, {1.0, 0.0, 0.0}},
+                          {{10.0, -1.0, 10.0}, {1.0, 0.0, 1.0}},
+                          {{-10.0, -1.0, -10.0}, {0.0, 0.0, 0.0}},
+                          {{10.0, -1.0, -10.0}, {1.0, 0.0, 0.0}},
                           
-                          {{1.0, 1.0, -1.0}, {1.0, 1.0, 0.0}},
-                          {{1.0, -1.0, -1.0}, {1.0, 0.0, 0.0}},
-                          {{-1.0, -1.0, -1.0}, {0.0, 0.0, 0.0}},
+                          {{10.0, 1.0, -10.0}, {1.0, 1.0, 0.0}},
+                          {{10.0, -1.0, -10.0}, {1.0, 0.0, 0.0}},
+                          {{-10.0, -1.0, -10.0}, {0.0, 0.0, 0.0}},
 
-                          {{-1.0, -1.0, -1.0}, {0.0, 0.0, 0.0}},
-                          {{-1.0, 1.0, 1.0}, {0.0, 1.0, 1.0}},
-                          {{-1.0, 1.0, -1.0}, {0.0, 1.0, 0.0}},
+                          {{-10.0, -1.0, -10.0}, {0.0, 0.0, 0.0}},
+                          {{-10.0, 1.0, 10.0}, {0.0, 1.0, 1.0}},
+                          {{-10.0, 1.0, -10.0}, {0.0, 1.0, 0.0}},
 
-                          {{1.0, -1.0, 1.0}, {1.0, 0.0, 1.0}},
-                          {{-1.0, -1.0, 1.0}, {0.0, 0.0, 1.0}},
-                          {{-1.0, -1.0, -1.0}, {0.0, 0.0, 0.0}},
+                          {{10.0, -1.0, 10.0}, {1.0, 0.0, 1.0}},
+                          {{-10.0, -1.0, 10.0}, {0.0, 0.0, 1.0}},
+                          {{-10.0, -1.0, -10.0}, {0.0, 0.0, 0.0}},
 
-                          {{-1.0, 1.0, 1.0}, {0.0, 1.0, 1.0}},
-                          {{-1.0, -1.0, 1.0}, {0.0, 0.0, 1.0}},
-                          {{1.0, -1.0, 1.0}, {1.0, 0.0, 1.0}},
+                          {{-10.0, 1.0, 10.0}, {0.0, 1.0, 1.0}},
+                          {{-10.0, -1.0, 10.0}, {0.0, 0.0, 1.0}},
+                          {{10.0, -1.0, 10.0}, {1.0, 0.0, 1.0}},
                           
-                          {{1.0, 1.0, 1.0}, {1.0, 1.0, 1.0}},
-                          {{1.0, -1.0, -1.0}, {1.0, 0.0, 0.0}},
-                          {{1.0, 1.0, -1.0}, {1.0, 1.0, 0.0}},
+                          {{10.0, 1.0, 10.0}, {1.0, 1.0, 1.0}},
+                          {{10.0, -1.0, -10.0}, {1.0, 0.0, 0.0}},
+                          {{10.0, 1.0, -10.0}, {1.0, 1.0, 0.0}},
 
-                          {{1.0, -1.0, -1.0}, {1.0, 0.0, 0.0}},
-                          {{1.0, 1.0, 1.0}, {1.0, 1.0, 1.0}},
-                          {{1.0, -1.0, 1.0}, {1.0, 0.0, 1.0}},/*
+                          {{10.0, -1.0, -10.0}, {1.0, 0.0, 0.0}},
+                          {{10.0, 1.0, 10.0}, {1.0, 1.0, 1.0}},
+                          {{10.0, -1.0, 10.0}, {1.0, 0.0, 1.0}},/*
 
-                          {{1.0, 1.0, 1.0}, {1.0, 1.0, 1.0}},
-                          {{1.0, 1.0, -1.0}, {1.0, 1.0, 0.0}},
-                          {{-1.0, 1.0, -1.0}, {0.0, 1.0, 0.0}},
+                          {{10.0, 1.0, 10.0}, {1.0, 1.0, 1.0}},
+                          {{10.0, 1.0, -10.0}, {1.0, 1.0, 0.0}},
+                          {{-10.0, 1.0, -10.0}, {0.0, 1.0, 0.0}},
 
-                          {{1.0, 1.0, 1.0}, {1.0, 1.0, 1.0}},
-                          {{-1.0, 1.0, -1.0}, {0.0, 1.0, 0.0}},
-                          {{-1.0, 1.0, 1.0}, {0.0, 1.0, 1.0}},*/
+                          {{10.0, 1.0, 10.0}, {1.0, 1.0, 1.0}},
+                          {{-10.0, 1.0, -10.0}, {0.0, 1.0, 0.0}},
+                          {{-10.0, 1.0, 10.0}, {0.0, 1.0, 1.0}},*/
 
-                          {{1.0, 1.0, 1.0}, {1.0, 1.0, 1.0}},
-                          {{-1.0, 1.0, 1.0}, {0.0, 1.0, 1.0}},
-                          {{1.0, -1.0, 1.0}, {1.0, 0.0, 1.0}}
+                          {{10.0, 1.0, 10.0}, {1.0, 1.0, 1.0}},
+                          {{-10.0, 1.0, 10.0}, {0.0, 1.0, 1.0}},
+                          {{10.0, -1.0, 10.0}, {1.0, 0.0, 1.0}}
                         };
     // Create a Vertex Buffer object to store this vertex info on the GPU
     glGenBuffers(1, &vbo_geometry);
@@ -322,7 +382,7 @@ bool initialize()
     //  if you will be having a moving camera the view matrix will need to more dynamic
     //  ...Like you should update it before you render more dynamic 
     //  for this project having them static will be fine
-    view = glm::lookAt( glm::vec3(0.0, 8.0, -16.0), //Eye Position
+    view = glm::lookAt( glm::vec3(0.0, 12.0, -24.0), //Eye Position
                         glm::vec3(0.0, 0.0, 0.0), //Focus point
                         glm::vec3(0.0, 1.0, 0.0)); //Positive Y is up
 
