@@ -7,6 +7,7 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp> //Makes passing matrices to shaders easier
 
+#include <Box2D.h>
 
 //--Data types
 //This object will define the attributes of a vertex(position, color, etc...)
@@ -197,7 +198,6 @@ void keyboard(unsigned char key, int x_pos, int y_pos)
 
 void specialKey(int key, int x, int y)
 {
-	std::cout << key << std::endl;
 	switch (key)
 	{
 	case GLUT_KEY_UP:
