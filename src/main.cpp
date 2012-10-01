@@ -2,11 +2,13 @@
 #include <GL/glut.h> // doing otherwise causes compiler shouting
 #include <iostream>
 #include <chrono>
+#include <deque>
+#include <array>
+#include <vector>
 
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp> //Makes passing matrices to shaders easier
-
 
 //--Data types
 //This object will define the attributes of a vertex(position, color, etc...)
@@ -17,10 +19,11 @@ struct Vertex
 };
 
 //--Evil Global variables
-//Just for this example!
+//TODO: Not have these anymore
 int w = 640, h = 480;// Window size
 GLuint program;// The GLSL program handle
-GLuint vbo_geometry;// VBO handle for our geometry
+GLuint vbo_geometry[2];// VBO handle for our geometry
+unsigned int vertexCounts[2]; // Needed for drawing
 
 //uniform locations
 GLint loc_mvpmat;// Location of the modelviewprojection matrix in the shader
@@ -30,10 +33,13 @@ GLint loc_position;
 GLint loc_color;
 
 //transform matrices
-glm::mat4 model;//obj->world each object should have its own model matrix
-glm::mat4 view;//world->eye
-glm::mat4 projection;//eye->clip
-glm::mat4 mvp;//premultiplied modelviewprojection
+namespace mats {
+    glm::mat4 ball;//ball->board
+	glm::mat4 board;//board->world
+	glm::mat4 view;//world->eye
+	glm::mat4 projection;//eye->clip
+	glm::mat4 mvp;//premultiplied modelviewprojection
+}
 
 //--GLUT Callbacks
 void render();
@@ -45,6 +51,8 @@ void specialKey(int, int, int);
 
 //--Resource management
 bool initialize();
+std::vector<Vertex> makeSphere(glm::vec3 center, GLfloat rad,
+        unsigned int detail, glm::vec3 color);
 void cleanUp();
 
 //--Random time things
@@ -57,6 +65,8 @@ float angleX = 0.0f;
 float angleZ = 0.0f;
 const float angleXLimit = 15;
 const float angleZLimit = 15;
+float ballX = 0.0f;
+float ballZ = 0.0f;
 
 
 //--Main
@@ -110,34 +120,36 @@ void render()
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
     //premultiply the matrix for this example
-    mvp = projection * view * model;
+    mats::mvp = mats::projection * mats::view * mats::board;
 
     //enable the shader program
     glUseProgram(program);
 
     //upload the matrix to the shader
-    glUniformMatrix4fv(loc_mvpmat, 1, GL_FALSE, glm::value_ptr(mvp));
+    glUniformMatrix4fv(loc_mvpmat, 1, GL_FALSE, glm::value_ptr(mats::mvp));
 
     //set up the Vertex Buffer Object so it can be drawn
-    glEnableVertexAttribArray(loc_position);
-    glEnableVertexAttribArray(loc_color);
-    glBindBuffer(GL_ARRAY_BUFFER, vbo_geometry);
-    //set pointers into the vbo for each of the attributes(position and color)
-    glVertexAttribPointer( loc_position,//location of attribute
-                           3,//number of elements
-                           GL_FLOAT,//type
-                           GL_FALSE,//normalized?
-                           sizeof(Vertex),//stride
-                           0);//offset
+    for (int i = 0; i < 2; i++) {
+        glEnableVertexAttribArray(loc_position);
+        glEnableVertexAttribArray(loc_color);
+        glBindBuffer(GL_ARRAY_BUFFER, vbo_geometry[i]);
+        //set pointers into the vbo for each of the attributes(position and color)
+        glVertexAttribPointer( loc_position,//location of attribute
+                               3,//number of elements
+                               GL_FLOAT,//type
+                               GL_FALSE,//normalized?
+                               sizeof(Vertex),//stride
+                               0);//offset
 
-    glVertexAttribPointer( loc_color,
-                           3,
-                           GL_FLOAT,
-                           GL_FALSE,
-                           sizeof(Vertex),
-                           (void*)offsetof(Vertex,color));
+        glVertexAttribPointer( loc_color,
+                               3,
+                               GL_FLOAT,
+                               GL_FALSE,
+                               sizeof(Vertex),
+                               (void*)offsetof(Vertex,color));
 
-    glDrawArrays(GL_TRIANGLES, 0, 36);//mode, starting index, count
+        glDrawArrays(GL_TRIANGLES, 0, vertexCounts[i]);//mode, starting index, count
+    }
 
     //clean up
     glDisableVertexAttribArray(loc_position);
@@ -153,7 +165,7 @@ void update()
     float dt = getDT();// if you have anything moving, use dt.
 
     //angle += dt * M_PI/2; //move through 90 degrees a second
-    model = //glm::translate( glm::mat4(1.0f), glm::vec3(4.0 * sin(angle), 0.0, 4.0 * cos(angle)));
+    mats::board = //glm::translate( glm::mat4(1.0f), glm::vec3(4.0 * sin(angle), 0.0, 4.0 * cos(angle)));
     		glm::rotate(glm::mat4(1.0), angleZ, glm::vec3(0.0f, 0.0f, 1.0f)) *
     		glm::rotate(glm::mat4(1.0), angleX, glm::vec3(1.0f, 0.0f, 0.0f));
     // Update the state of the scene
@@ -169,7 +181,7 @@ void reshape(int n_w, int n_h)
     glViewport( 0, 0, w, h);
     //Update the projection matrix as well
     //See the init function for an explaination
-    projection = glm::perspective(45.0f, float(w)/float(h), 0.01f, 100.0f);
+    mats::projection = glm::perspective(45.0f, float(w)/float(h), 0.01f, 100.0f);
 
 }
 
@@ -232,8 +244,6 @@ void passiveMotion(int x, int y)
 
 bool initialize()
 {
-    // Initialize basic geometry and shaders for this example
-
     //this defines a cube, this is why a model loader is nice
     //you can also do this with a draw elements and indices, try to get that working
     Vertex geometry[] = { {{-10.0, -1.0, -10.0}, {0.86, 0.70, 0.49}},
@@ -284,11 +294,22 @@ bool initialize()
                           {{-10.0, 1.0, 10.0}, {0.93, 0.79, 0.62}},
                           {{10.0, -1.0, 10.0}, {0.86, 0.70, 0.49}}
                         };
-    // Create a Vertex Buffer object to store this vertex info on the GPU
-    glGenBuffers(1, &vbo_geometry);
-    glBindBuffer(GL_ARRAY_BUFFER, vbo_geometry);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(geometry), geometry, GL_STATIC_DRAW);
+    vertexCounts[0] = 36;
 
+    // Also, a sphere
+    auto ballModel = makeSphere(glm::vec3{0,0,0}, 1.0f, 4,
+            glm::vec3{0,0.0,0.5});
+    vertexCounts[1] = ballModel.size();
+
+    // Create a Vertex Buffer object to store these vertex infos on the GPU
+    glGenBuffers(2, vbo_geometry);
+    glBindBuffer(GL_ARRAY_BUFFER, vbo_geometry[0]);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(geometry), geometry, GL_STATIC_DRAW);
+    glBindBuffer(GL_ARRAY_BUFFER, vbo_geometry[1]);
+    glBufferData(GL_ARRAY_BUFFER,
+            sizeof(Vertex) * ballModel.size(),
+            ballModel.data(),
+            GL_STATIC_DRAW);
     //--Geometry done
 
     GLuint vertex_shader = glCreateShader(GL_VERTEX_SHADER);
@@ -382,11 +403,11 @@ bool initialize()
     //  if you will be having a moving camera the view matrix will need to more dynamic
     //  ...Like you should update it before you render more dynamic 
     //  for this project having them static will be fine
-    view = glm::lookAt( glm::vec3(0.0, 12.0, -24.0), //Eye Position
+    mats::view = glm::lookAt( glm::vec3(0.0, 12.0, -24.0), //Eye Position
                         glm::vec3(0.0, 0.0, 0.0), //Focus point
                         glm::vec3(0.0, 1.0, 0.0)); //Positive Y is up
 
-    projection = glm::perspective( 45.0f, //the FoV typically 90 degrees is good which is what this is set to
+    mats::projection = glm::perspective( 45.0f, //the FoV typically 90 degrees is good which is what this is set to
                                    float(w)/float(h), //Aspect Ratio, so Circles stay Circular
                                    0.01f, //Distance to the near plane, normally a small value like this
                                    100.0f); //Distance to the far plane, 
@@ -403,7 +424,7 @@ void cleanUp()
 {
     // Clean up, Clean up
     glDeleteProgram(program);
-    glDeleteBuffers(1, &vbo_geometry);
+    glDeleteBuffers(2, vbo_geometry);
 }
 
 //returns the time delta
@@ -414,4 +435,68 @@ float getDT()
     ret = std::chrono::duration_cast< std::chrono::duration<float> >(t2-t1).count();
     t1 = std::chrono::high_resolution_clock::now();
     return ret;
+}
+
+// Makes a sphere by subdividing an octahedron
+std::vector<Vertex> makeSphere(glm::vec3 center, GLfloat rad,
+        unsigned int detail, glm::vec3 color) {
+    // Make the vertices
+    const glm::vec3 right  = glm::vec3{  rad,    0,    0};
+    const glm::vec3 top    = glm::vec3{    0,  rad,    0};
+    const glm::vec3 front  = glm::vec3{    0,    0,  rad};
+    const glm::vec3 left   = glm::vec3{ -rad,    0,    0};
+    const glm::vec3 bottom = glm::vec3{    0, -rad,    0};
+    const glm::vec3 back   = glm::vec3{    0,    0, -rad};
+    std::deque<glm::vec3> points
+        {top,    front, right,
+         top,    right, back,
+         top,    back,  left,
+         top,    left,  front,
+         bottom, right, front,
+         bottom, back,  right,
+         bottom, left,  back,
+         bottom, front, left};
+    std::array<glm::vec3, 6> tri;
+
+    for (int i = 0; i < detail; i++) {
+        int triangles = points.size()/3;
+        for (int j = 0; j < triangles; j++) {
+            // Even Corners
+            for (int k = 0; k < 3; k++) {
+                tri[2*k] = points.front();
+                //std::cerr << tri[2*k].x << "," << tri[2*k].y << "," << tri[2*k].z << std::endl;
+                points.pop_front();
+            }
+            // Odd Midpoints
+            for (int k = 0; k < 3; k++) {
+                tri[2*k+1] =
+                        glm::normalize((tri[2*k] + tri[(2*k+2)%6])/2.0f)*rad;
+            }
+            /*for (auto pt : tri)
+                std::cerr << pt.x << "," << pt.y << "," << pt.z << std::endl;*/
+            std::cerr <<  std::endl;
+            // Add triangles
+            points.push_back(tri[0]);//Top
+            points.push_back(tri[1]);
+            points.push_back(tri[5]);
+            points.push_back(tri[1]);//Left
+            points.push_back(tri[2]);
+            points.push_back(tri[3]);
+            points.push_back(tri[5]);//Right
+            points.push_back(tri[3]);
+            points.push_back(tri[4]);
+            points.push_back(tri[1]);//Center
+            points.push_back(tri[3]);
+            points.push_back(tri[5]);
+        }
+    }
+
+    std::vector<Vertex> result;
+    for (auto pt : points) {
+        pt += center;
+        result.push_back(
+                Vertex{{pt.x, pt.y, pt.z},
+                       {color.x, color.y, color.z}});
+    }
+    return result;
 }
