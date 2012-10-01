@@ -1,0 +1,20 @@
+#!/bin/sh
+mkdir -p build
+mkdir -p bin
+cd build
+cmake -DCMAKE_RUNTIME_OUTPUT_DIRECTORY=../bin/ ../src/ "$@"
+cd ..
+cat << EOF > Makefile
+.PHONY: distclean clean
+
+default: build/Makefile
+	cd build; make
+
+distclean:
+	rm -r bin build Makefile
+
+clean:
+	cd build; make clean
+
+EOF
+

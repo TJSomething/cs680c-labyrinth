@@ -5,12 +5,14 @@
 #include <deque>
 #include <array>
 #include <vector>
+#include <memory>
 
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp> //Makes passing matrices to shaders easier
 
-#include <Box2D.h>
+#include <Box2D/Box2D.h>
+
 //--Data types
 //This object will define the attributes of a vertex(position, color, etc...)
 struct Vertex
@@ -39,7 +41,7 @@ namespace mats {
 	glm::mat4 board;//board->world
 	glm::mat4 view;//world->eye
 	glm::mat4 projection;//eye->clip
-	glm::mat4 mvp;//premultiplied modelviewprojection
+	glm::mat4 mvp[2];//premultiplied modelviewprojections
 }
 
 //--GLUT Callbacks
@@ -52,8 +54,6 @@ void specialKey(int, int, int);
 
 //--Resource management
 bool initialize();
-std::vector<Vertex> makeSphere(glm::vec3 center, GLfloat rad,
-        unsigned int detail, glm::vec3 color);
 void cleanUp();
 
 //--Random time things
@@ -64,11 +64,26 @@ std::chrono::time_point<std::chrono::high_resolution_clock> t1,t2;
 const float speed = 0.01f;
 float angleX = 0.0f;
 float angleZ = 0.0f;
-const float angleXLimit = 15;
-const float angleZLimit = 15;
+const float angleXLimit = 3;
+const float angleZLimit = 3;
 float ballX = 0.0f;
 float ballZ = 0.0f;
 
+// Physics
+namespace phys {
+
+    b2World world( b2Vec2_zero );
+    b2Body* ball;
+    b2Body* walls;
+}
+
+const float g = 9.8;
+const int frequency = 120;
+const float timeStep = 1/float(frequency);
+
+// Utility functions
+std::vector<Vertex> makeSphere(glm::vec3 center, GLfloat rad,
+        unsigned int detail, glm::vec3 color);
 
 //--Main
 int main(int argc, char **argv)
@@ -121,16 +136,18 @@ void render()
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
     //premultiply the matrix for this example
-    mats::mvp = mats::projection * mats::view * mats::board;
+    mats::mvp[0] = mats::projection * mats::view * mats::board;
+    mats::mvp[1] = mats::mvp[0] * mats::ball;
 
     //enable the shader program
     glUseProgram(program);
 
     //upload the matrix to the shader
-    glUniformMatrix4fv(loc_mvpmat, 1, GL_FALSE, glm::value_ptr(mats::mvp));
 
     //set up the Vertex Buffer Object so it can be drawn
     for (int i = 0; i < 2; i++) {
+        glUniformMatrix4fv(loc_mvpmat, 1, GL_FALSE, glm::value_ptr(mats::mvp[i]));
+
         glEnableVertexAttribArray(loc_position);
         glEnableVertexAttribArray(loc_color);
         glBindBuffer(GL_ARRAY_BUFFER, vbo_geometry[i]);
@@ -163,12 +180,43 @@ void render()
 void update()
 {
     //total time
+    static float remainder = 0.0f;
     float dt = getDT();// if you have anything moving, use dt.
 
     //angle += dt * M_PI/2; //move through 90 degrees a second
     mats::board = //glm::translate( glm::mat4(1.0f), glm::vec3(4.0 * sin(angle), 0.0, 4.0 * cos(angle)));
     		glm::rotate(glm::mat4(1.0), angleZ, glm::vec3(0.0f, 0.0f, 1.0f)) *
     		glm::rotate(glm::mat4(1.0), angleX, glm::vec3(1.0f, 0.0f, 0.0f));
+    mats::ball =
+            glm::translate(glm::mat4(1.0f), glm::vec3(ballX, -0.5f, ballZ))*mats::board;
+
+    // Apply force to the ball
+    glm::vec3 normal =
+            glm::vec3(mats::board[0][1],
+                      mats::board[1][1],
+                      mats::board[2][1]);
+    glm::vec3 normalForce = phys::ball->GetMass() * g * normal;
+    glm::vec3 down{0,-1,0};
+    // The crossproduct of down and the normal force is perpendicular to
+    // the proper direction of force, with the magnitude of the force
+    // applied to an object on an inclined plane mg*sin(theta).
+    glm::vec3 perpForce = glm::cross(normalForce, down);
+    // Rotate the force in the right direction, into 2D
+    b2Vec2 force = b2Vec2(perpForce.z, -perpForce.x);
+    phys::ball->ApplyForce(force, phys::ball->GetWorldCenter());
+
+    // Work the physics
+    // Calculate the number of timesteps that have elapsed
+    remainder += dt;
+    while (remainder > timeStep) {
+        phys::world.Step(timeStep, 8, 3);
+        remainder -= timeStep;
+    }
+
+    ballX = phys::ball->GetWorldCenter().x;
+    ballZ = phys::ball->GetWorldCenter().y;
+    //std::cout << ballX << ", " << ballZ << std::endl;
+
     // Update the state of the scene
     glutPostRedisplay();//call the display callback
 }
@@ -189,7 +237,7 @@ void reshape(int n_w, int n_h)
 void changeAngle(int x, int y)
 {
 	angleX += y * M_PI*0.01;
-	angleZ += x * M_PI*0.01;
+	angleZ -= x * M_PI*0.01;
 	if (angleX > angleXLimit)
 		angleX = angleXLimit;
 	else if (angleX < -angleXLimit)
@@ -297,7 +345,7 @@ bool initialize()
     vertexCounts[0] = 36;
 
     // Also, a sphere
-    auto ballModel = makeSphere(glm::vec3{0,0,0}, 1.0f, 4,
+    auto ballModel = makeSphere(glm::vec3{0,0,0}, 0.5f, 4,
             glm::vec3{0,0.0,0.5});
     vertexCounts[1] = ballModel.size();
 
@@ -416,6 +464,37 @@ bool initialize()
     glEnable(GL_DEPTH_TEST);
     glDepthFunc(GL_LESS);
 
+    // Setup physics
+    // Walls
+    b2BodyDef wallBodyDef;
+    b2ChainShape wallShape;
+    std::vector<b2Vec2> wallVertices
+        {{10.0f,10.0f},
+         {-10.0f,10.0f},
+         {-10.0f,-10.0f},
+         {10.0f,-10.0f}};
+    wallShape.CreateLoop(wallVertices.data(), 4);
+    phys::walls = phys::world.CreateBody(&wallBodyDef);
+    phys::walls->CreateFixture(&wallShape, 0.0f);
+
+    // Ball
+    b2BodyDef ballBodyDef;
+    b2CircleShape ballShape;
+    b2FixtureDef fixtureDef;
+
+    ballBodyDef.type = b2_dynamicBody;
+    ballBodyDef.linearDamping = 0.08f;
+    phys::ball = phys::world.CreateBody(&ballBodyDef);
+
+    ballShape.m_radius = 0.5;
+
+    fixtureDef.shape = &ballShape;
+    fixtureDef.density = 1.0f;
+    fixtureDef.friction = 0.08f;
+    fixtureDef.restitution = 0.5f;
+
+    phys::ball->CreateFixture(&fixtureDef);
+
     //and its done
     return true;
 }
@@ -456,7 +535,7 @@ std::vector<Vertex> makeSphere(glm::vec3 center, GLfloat rad,
          bottom, back,  right,
          bottom, left,  back,
          bottom, front, left};
-    std::array<glm::vec3, 6> tri;
+    glm::vec3 tri[6];
 
     for (int i = 0; i < detail; i++) {
         int triangles = points.size()/3;
