@@ -553,7 +553,7 @@ std::vector<Vertex> makeSphere(glm::vec3 center, GLfloat rad,
             }
             /*for (auto pt : tri)
                 std::cerr << pt.x << "," << pt.y << "," << pt.z << std::endl;*/
-            std::cerr <<  std::endl;
+            //std::cerr <<  std::endl;
             // Add triangles
             points.push_back(tri[0]);//Top
             points.push_back(tri[1]);
