@@ -44,6 +44,9 @@ namespace mats {
 	glm::mat4 mvp[2];//premultiplied modelviewprojections
 }
 
+#define FLOOR_COLOR {0.86, 0.70, 0.49}
+#define TOP_COLOR {0.93, 0.79, 0.62}
+
 //--GLUT Callbacks
 void render();
 void update();
@@ -84,6 +87,8 @@ const float timeStep = 1/float(frequency);
 // Utility functions
 std::vector<Vertex> makeSphere(glm::vec3 center, GLfloat rad,
         unsigned int detail, glm::vec3 color);
+void addWalls(std::vector<Vertex>& geometry, b2Body* board,
+        std::vector<b2Vec2> pts, bool closeLoop);
 
 //--Main
 int main(int argc, char **argv)
@@ -267,10 +272,10 @@ void specialKey(int key, int x, int y)
 		changeAngle(0,-1);
 		break;
 	case GLUT_KEY_LEFT:
-		changeAngle(-1,0);
+		changeAngle(1,0);
 		break;
 	case GLUT_KEY_RIGHT:
-		changeAngle(1,0);
+		changeAngle(-1,0);
 		break;
 	}
 }
@@ -292,9 +297,7 @@ void passiveMotion(int x, int y)
 
 bool initialize()
 {
-    //this defines a cube, this is why a model loader is nice
-    //you can also do this with a draw elements and indices, try to get that working
-    Vertex geometry[] = { {{-10.0, -1.0, -10.0}, {0.86, 0.70, 0.49}},
+    std::vector<Vertex> geometry; /*{ {{-10.0, -1.0, -10.0}, {0.86, 0.70, 0.49}},
                           {{-10.0, -1.0, 10.0}, {0.86, 0.70, 0.49}},
                           {{-10.0, 1.0, 10.0}, {0.93, 0.79, 0.62}},
 
@@ -328,21 +331,32 @@ bool initialize()
 
                           {{10.0, -1.0, -10.0}, {0.86, 0.70, 0.49}},
                           {{10.0, 1.0, 10.0}, {0.93, 0.79, 0.62}},
-                          {{10.0, -1.0, 10.0}, {0.86, 0.70, 0.49}},/*
-
-                          {{10.0, 1.0, 10.0}, {0.93, 0.79, 0.62}},
-                          {{10.0, 1.0, -10.0}, {0.93, 0.79, 0.62}},
-                          {{-10.0, 1.0, -10.0}, {0.93, 0.79, 0.62}},
-
-                          {{10.0, 1.0, 10.0}, {0.93, 0.79, 0.62}},
-                          {{-10.0, 1.0, -10.0}, {0.93, 0.79, 0.62}},
-                          {{-10.0, 1.0, 10.0}, {0.93, 0.79, 0.62}},*/
+                          {{10.0, -1.0, 10.0}, {0.86, 0.70, 0.49}},
 
                           {{10.0, 1.0, 10.0}, {0.93, 0.79, 0.62}},
                           {{-10.0, 1.0, 10.0}, {0.93, 0.79, 0.62}},
                           {{10.0, -1.0, 10.0}, {0.86, 0.70, 0.49}}
-                        };
-    vertexCounts[0] = 36;
+                        }*/
+    // Add the floor
+    geometry.push_back(Vertex{{-10.0f, -1.0f, -10.0f}, FLOOR_COLOR});
+    geometry.push_back(Vertex{{10.0f, -1.0f, -10.0f}, FLOOR_COLOR});
+    geometry.push_back(Vertex{{-10.0f, -1.0f, 10.0f}, FLOOR_COLOR});
+    geometry.push_back(Vertex{{10.0f, -1.0f, 10.0f}, FLOOR_COLOR});
+    geometry.push_back(Vertex{{-10.0f, -1.0f, 10.0f}, FLOOR_COLOR});
+    geometry.push_back(Vertex{{10.0f, -1.0f, -10.0f}, FLOOR_COLOR});
+    // And walls
+    b2BodyDef wallBodyDef;
+    phys::walls = phys::world.CreateBody(&wallBodyDef);
+    std::cout << geometry.size() << std::endl;
+    addWalls(geometry, phys::walls, {{10.0f,10.0f},
+         {-10.0f,10.0f},
+         {-10.0f,-10.0f},
+         {10.0f,-10.0f}}, true);
+    addWalls(geometry, phys::walls, {{5,0}, {-5, 0}}, false);
+    std::cout << geometry.size() << std::endl;
+
+
+    vertexCounts[0] = geometry.size();
 
     // Also, a sphere
     auto ballModel = makeSphere(glm::vec3{0,0,0}, 0.5f, 4,
@@ -352,7 +366,7 @@ bool initialize()
     // Create a Vertex Buffer object to store these vertex infos on the GPU
     glGenBuffers(2, vbo_geometry);
     glBindBuffer(GL_ARRAY_BUFFER, vbo_geometry[0]);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(geometry), geometry, GL_STATIC_DRAW);
+    glBufferData(GL_ARRAY_BUFFER, geometry.size()*sizeof(Vertex), geometry.data(), GL_STATIC_DRAW);
     glBindBuffer(GL_ARRAY_BUFFER, vbo_geometry[1]);
     glBufferData(GL_ARRAY_BUFFER,
             sizeof(Vertex) * ballModel.size(),
@@ -466,16 +480,14 @@ bool initialize()
 
     // Setup physics
     // Walls
-    b2BodyDef wallBodyDef;
+    /*b2BodyDef wallBodyDef;
     b2ChainShape wallShape;
     std::vector<b2Vec2> wallVertices
         {{10.0f,10.0f},
          {-10.0f,10.0f},
          {-10.0f,-10.0f},
          {10.0f,-10.0f}};
-    wallShape.CreateLoop(wallVertices.data(), 4);
-    phys::walls = phys::world.CreateBody(&wallBodyDef);
-    phys::walls->CreateFixture(&wallShape, 0.0f);
+    wallShape.CreateLoop(wallVertices.data(), 4);*/
 
     // Ball
     b2BodyDef ballBodyDef;
@@ -578,4 +590,36 @@ std::vector<Vertex> makeSphere(glm::vec3 center, GLfloat rad,
                        {color.x, color.y, color.z}});
     }
     return result;
+}
+
+/**
+ * Adds walls to the geometry and board. This assumes that walls are made
+ * CCW, as viewed from above.
+ */
+void addWalls(std::vector<Vertex>& geometry, b2Body* board,
+        std::vector<b2Vec2> pts, bool closeLoop) {
+    int ptCount = pts.size() + (closeLoop ? 0 : -1);
+    // Add the walls to the geometry
+    for (int i = 0; i < ptCount; i++) {
+        int i2 = (i+1)%pts.size();
+        geometry.push_back({{pts[i].x, 1.0f, pts[i].y},
+            TOP_COLOR});
+        geometry.push_back({{pts[i].x, -1.0f, pts[i].y},
+            FLOOR_COLOR});
+        geometry.push_back({{pts[i2].x, 1.0f, pts[i2].y},
+            TOP_COLOR});
+        geometry.push_back({{pts[i].x, -1.0f, pts[i].y},
+            FLOOR_COLOR});
+        geometry.push_back({{pts[i2].x, -1.0f, pts[i2].y},
+            FLOOR_COLOR});
+        geometry.push_back({{pts[i2].x, 1.0f, pts[i2].y},
+            TOP_COLOR});
+    }
+    // Add the walls to the physics
+    b2ChainShape wallShape;
+    if (closeLoop)
+        wallShape.CreateLoop(pts.data(), pts.size());
+    else
+        wallShape.CreateChain(pts.data(), pts.size());
+    phys::walls->CreateFixture(&wallShape, 0.0f);
 }
