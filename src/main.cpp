@@ -568,7 +568,7 @@ void keyboard(unsigned char key, int x_pos, int y_pos)
         state = MENU;
         menuItem = 0;
     }*/
-    printf("%d\n", key);
+    //printf("%d\n", key);
     keys[key] = true;
 }
 
