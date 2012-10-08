@@ -9,6 +9,7 @@
 #include <random>
 #include <cmath>
 #include <set>
+#include <string>
 
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -57,6 +58,7 @@ void render();
 void update();
 void reshape(int n_w, int n_h);
 void keyboard(unsigned char key, int x_pos, int y_pos);
+void keyboardUp(unsigned char key, int x_pos, int y_pos);
 void passiveMotion(int, int);
 void specialKey(int, int, int);
 void specialKeyUp(int key, int x, int y);
@@ -116,12 +118,15 @@ enum States {
     RUNNING,
     WIN,
     LOSE,
-    MENU
+    MENU,
+    SETTINGS
 };
 States state;
+int menuItem = 0;
 
 // Controls
 bool specialKeys[256];
+bool keys[256];
 int mouseX = 0, mouseY = 0;
 float keyboardSensitivity = 200.0f;
 float mouseSensitivity = 0.5f;
@@ -163,6 +168,7 @@ int main(int argc, char **argv)
     glutReshapeFunc(reshape);// Called if the window is resized
     glutIdleFunc(update);// Called if there is nothing else to do
     glutKeyboardFunc(keyboard);// Called if there is keyboard input
+    glutKeyboardUpFunc(keyboardUp);
     glutPassiveMotionFunc(passiveMotion);
     glutSpecialFunc(specialKey);
     glutSpecialUpFunc(specialKeyUp);
@@ -178,6 +184,23 @@ int main(int argc, char **argv)
     // Clean up after ourselves
     cleanUp();
     return 0;
+}
+
+void glutPrint(float x, float y, void* font, const char* text, float r, float g, float b, float a)
+{
+    if(!text || !strlen(text)) return;
+    bool blending = false;
+    if(glIsEnabled(GL_BLEND)) blending = true;
+    glEnable(GL_BLEND);
+    glColor4f(r,g,b,a);
+    int width = glutBitmapLength(font, (unsigned char*) text);
+    //printf("%d\n", width);
+    glRasterPos2f(x-width/480.0/2.0,y);
+    while (*text) {
+        glutBitmapCharacter(font, *text);
+        text++;
+    }
+    if(!blending) glDisable(GL_BLEND);
 }
 
 //--Implementations
@@ -226,18 +249,58 @@ void render()
     //clean up
     glDisableVertexAttribArray(loc_position);
     glDisableVertexAttribArray(loc_color);
+
+    switch (state) {
+    case LOSE:
+        glUseProgram(0);
+        glutPrint(0.0f, 0.0f, GLUT_BITMAP_TIMES_ROMAN_24, "You lose!", 1.0f, 1.0f, 1.0f, 0.5f);
+        break;
+    case WIN:
+        glUseProgram(0);
+        glutPrint(0.0f, 0.0f, GLUT_BITMAP_TIMES_ROMAN_24, "You win!", 1.0f, 1.0f, 1.0f, 0.5f);
+        break;
+    case MENU:
+        glUseProgram(0);
+        glutPrint(0.0f, 0.3f, GLUT_BITMAP_TIMES_ROMAN_24, "Start",
+                1.0f, 1.0f, menuItem == 0 ? 0.0f : 1.0f, 0.5f);
+        glutPrint(0.0f, 0.1f, GLUT_BITMAP_TIMES_ROMAN_24, "Restart",
+                1.0f, 1.0f, menuItem == 1 ? 0.0f : 1.0f, 0.5f);
+        glutPrint(0.0f, -0.1f, GLUT_BITMAP_TIMES_ROMAN_24, "Settings",
+                1.0f, 1.0f, menuItem == 2 ? 0.0f : 1.0f, 0.5f);
+        glutPrint(0.0f, -0.3f, GLUT_BITMAP_TIMES_ROMAN_24, "Exit",
+                1.0f, 1.0f, menuItem == 3 ? 0.0f : 1.0f, 0.5f);
+        //printf("i:%d\n", menuItem);
+        break;
+    case SETTINGS:
+        glUseProgram(0);
+        glutPrint(0.0f, 0.2f, GLUT_BITMAP_TIMES_ROMAN_24,
+                (std::string("Mouse sensitivity: ") +
+                std::to_string(mouseSensitivity)).c_str(),
+                1.0f, 1.0f, menuItem == 0 ? 0.0f : 1.0f, 0.5f);
+        glutPrint(0.0f, 0.0f, GLUT_BITMAP_TIMES_ROMAN_24,
+                (std::string("Keyboard sensitivity: ") +
+                std::to_string(keyboardSensitivity)).c_str(),
+                1.0f, 1.0f, menuItem == 1 ? 0.0f : 1.0f, 0.5f);
+        glutPrint(0.0f, -0.2f, GLUT_BITMAP_TIMES_ROMAN_24, "Back",
+                1.0f, 1.0f, menuItem == 2 ? 0.0f : 1.0f, 0.5f);
+        break;
+    }
                            
     //swap the buffers
     glutSwapBuffers();
 }
 
-void updateRunning()
+void updateRunning(float dt)
 {
     //total time
     static float remainder = 0.0f;
-    float dt = getDT();// if you have anything moving, use dt.
 
     // Check the controls
+    if (keys[27]) {
+        state = MENU;
+        menuItem = 0;
+        keys[27] = false;
+    }
     if (specialKeys[GLUT_KEY_UP]) {
         changeAngle(0, keyboardSensitivity*dt);
     }
@@ -326,6 +389,10 @@ void updateRunning()
             // Euler integration is fine here
             // This equation should give the right velocity for falling
             ballY -= g * sqrtf(-2.0f/g*(ballY+0.5))*dt;
+            // If the ball has fallen enough, you lose
+            if (ballY < -75.0f) {
+                state = LOSE;
+            }
         } else {
             ballY = -0.5 - (holeRadius-dist);
         }
@@ -334,30 +401,114 @@ void updateRunning()
     }
     ballZ = phys::ball->GetWorldCenter().y;
     //std::cout << ballX << ", " << ballZ << std::endl;
-
-    // Update the state of the scene
-    glutPostRedisplay();//call the display callback
 }
 
-void updateLose() {
 
+void updateLose(float dt) {
+
+}
+
+void updateMenu(float dt) {
+    //printf("%d\n", keys['\n']);
+    if (keys['\r']) {
+        keys['\r'] = false;
+        switch (menuItem) {
+        case 0:
+            state = RUNNING;
+            break;
+        case 1:
+            cleanUp();
+            initialize();
+            break;
+        case 2:
+            state = SETTINGS;
+            menuItem = 0;
+            break;
+        case 3:
+            exit(0);
+            break;
+        }
+    }
+    if (specialKeys[GLUT_KEY_DOWN]) {
+        //printf("a:%d\n", specialKeys[GLUT_KEY_DOWN]);
+        specialKeys[GLUT_KEY_DOWN] = false;
+        if (menuItem < 3)
+            menuItem++;
+        //printf("i:%d\n", menuItem);
+    }
+    if (specialKeys[GLUT_KEY_UP]) {
+        specialKeys[GLUT_KEY_UP] = false;
+        if (menuItem != 0)
+            menuItem--;
+    }
+}
+
+void updateSettings(float dt) {
+    if (keys['\r']) {
+        keys['\r'] = false;
+        switch (menuItem) {
+        case 2:
+            state = MENU;
+            menuItem = 2;
+            return;
+            break;
+        }
+    }
+    if (specialKeys[GLUT_KEY_LEFT]) {
+        switch(menuItem) {
+        case 0:
+            mouseSensitivity *= powf(0.5, dt);
+            break;
+        case 1:
+            keyboardSensitivity *= powf(0.5, dt);
+            break;
+        }
+    }
+    if (specialKeys[GLUT_KEY_RIGHT]) {
+        switch(menuItem) {
+        case 0:
+            mouseSensitivity *= powf(2, dt);
+            break;
+        case 1:
+            keyboardSensitivity *= powf(2, dt);
+            break;
+        }
+    }
+    if (specialKeys[GLUT_KEY_DOWN]) {
+        //printf("a:%d\n", specialKeys[GLUT_KEY_DOWN]);
+        specialKeys[GLUT_KEY_DOWN] = false;
+        if (menuItem < 2)
+            menuItem++;
+        //printf("i:%d\n", menuItem);
+    }
+    if (specialKeys[GLUT_KEY_UP]) {
+        specialKeys[GLUT_KEY_UP] = false;
+        if (menuItem != 0)
+            menuItem--;
+    }
 }
 
 void update() {
+    float dt = getDT();// if you have anything moving, use dt.
+
     switch(state) {
     case RUNNING:
-        updateRunning();
-        break;/*
-    case LOSE:
-        updateLose();
+        updateRunning(dt);
         break;
-    case WIN:
-        updateWin();
+    case LOSE:
+        updateLose(dt);
         break;
     case MENU:
-        updateMenu();
+        updateMenu(dt);
+        break;
+    case SETTINGS:
+        updateSettings(dt);
+        break;/*
+    case WIN:
+        updateWin();
         break;*/
     }
+    glutPostRedisplay();
 }
 
 
@@ -389,22 +540,33 @@ void changeAngle(float x, float y)
 
 void keyboard(unsigned char key, int x_pos, int y_pos)
 {
-    if(key == 27)//ESC
+    /*if(key == 27)//ESC
     {
         //exit(0);
-        cleanUp();
-        initialize();
-    }
+        //cleanUp();
+        //initialize();
+        state = MENU;
+        menuItem = 0;
+    }*/
+    printf("%d\n", key);
+    keys[key] = true;
+}
+
+void keyboardUp(unsigned char key, int x_pos, int y_pos)
+{
+    keys[key] = false;
 }
 
 void specialKey(int key, int x, int y)
 {
     specialKeys[key] = true;
+    //printf("%d\n", specialKeys[GLUT_KEY_DOWN]);
 }
 
 void specialKeyUp(int key, int x, int y)
 {
     specialKeys[key] = false;
+    //printf("%d\n", specialKeys[GLUT_KEY_DOWN]);
 }
 
 void passiveMotion(int x, int y)
@@ -428,6 +590,9 @@ bool initialize()
     state = RUNNING;
     // Reset all of the keys
     for ( auto &key : specialKeys ) {
+        key = false;
+    }
+    for ( auto &key : keys ) {
         key = false;
     }
 
@@ -1016,9 +1181,6 @@ void addWallTops(std::vector<Vertex>& geometry, const std::vector<b2Vec2>&
     gluDeleteTess(tess);
 
     // Shove the new vertices into the geometry
-
-    for ( auto v : wallTopVertices) {
-        geometry.push_back(v);
-    }
-    //geometry.insert(geometry.end(), wallTopVertices.begin(), wallTopVertices.end());
+    geometry.insert(geometry.end(), wallTopVertices.begin(),
+            wallTopVertices.end());
 }
