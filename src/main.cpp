@@ -334,6 +334,17 @@ void updateRunning(float dt)
             break;
         }
     }
+    // Check if we have a winner
+    {
+        using namespace MazeParams;
+        auto ballPt = phys::ball->GetWorldCenter();
+        if (ballPt.x > left + cellHSize*(endX) + wallThickness &&
+            ballPt.x < left + cellHSize*(endX+1) - wallThickness &&
+            ballPt.y > bottom + cellVSize*(endY) + wallThickness &&
+            ballPt.y < bottom + cellVSize*(endY+1) - wallThickness)
+            state = WIN;
+    }
+
     // Apply force to the ball
     glm::vec3 normal;
     if (!inHole)
@@ -405,7 +416,16 @@ void updateRunning(float dt)
 
 
 void updateLose(float dt) {
-
+    if (keys[27]) {
+        state = MENU;
+        menuItem = 0;
+        keys[27] = false;
+    }
+    if (keys['\r']) {
+        keys['\r'] = false;
+        cleanUp();
+        initialize();
+    }
 }
 
 void updateMenu(float dt) {
@@ -503,10 +523,10 @@ void update() {
         break;
     case SETTINGS:
         updateSettings(dt);
-        break;/*
+        break;
     case WIN:
-        updateWin();
-        break;*/
+        updateLose(dt);
+        break;
     }
     glutPostRedisplay();
 }
@@ -920,6 +940,9 @@ bool initialize()
     // Allow better keyboard control
     glutIgnoreKeyRepeat(1);
 
+    // Disable the cursor
+    glutSetCursor(GLUT_CURSOR_NONE);
+
     // Setup physics
     // Walls
     /*b2BodyDef wallBodyDef;
@@ -963,6 +986,8 @@ void cleanUp()
     // Reset stuff
     angleX = 0.0f;
     angleZ = 0.0f;
+    mouseX = 0;
+    mouseY = 0;
     holes.clear();
     // Clean up, Clean up
     phys::world.DestroyBody(phys::ball);
