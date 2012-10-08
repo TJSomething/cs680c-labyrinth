@@ -6,6 +6,9 @@
 #include <array>
 #include <vector>
 #include <memory>
+#include <random>
+#include <cmath>
+#include <set>
 
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -98,6 +101,8 @@ namespace MazeParams {
     const float wallThickness = 0.2f;
 }
 
+const int holeCount = 5;
+const float holeRadius = 1.0;
 std::vector<b2Vec2> holes;
 
 // Utility functions
@@ -105,6 +110,7 @@ std::vector<Vertex> makeSphere(glm::vec3 center, GLfloat rad,
         unsigned int detail, glm::vec3 color);
 void addWalls(std::vector<Vertex>& geometry, b2Body* board,
         std::vector<b2Vec2> pts, bool closeLoop);
+void addHole(std::vector<Vertex>& geometry, b2Vec2 loc);
 
 //--Main
 int main(int argc, char **argv)
@@ -273,7 +279,9 @@ void keyboard(unsigned char key, int x_pos, int y_pos)
 {
     if(key == 27)//ESC
     {
-        exit(0);
+        //exit(0);
+        cleanUp();
+        initialize();
     }
 }
 
@@ -382,7 +390,8 @@ bool initialize()
 
         std::vector<b2Vec2> wallCorners;
         wallCorners.push_back({left + wallThickness, bottom + wallThickness});
-        do {
+        while (!(x == 0 && y == 0 &&
+                maze.getDirection(x,y,(Maze::direction) dir) && out == true)) {
             // Turn right
             dir = (dir == 0) ? 3 : dir-1;
             // If we need to turn, make a corner
@@ -474,13 +483,28 @@ bool initialize()
                 y += dy[dir];
                 out = true;
             }
-        } while (!(x == 0 && y == 0 && out == true));
+        };
 
-        addWalls(geometry, phys::walls, wallCorners, false);
+        addWalls(geometry, phys::walls, wallCorners, true);
     }
 
     // Make holes
-
+    std::mt19937 gen;
+    std::uniform_int_distribution<int> holePlaces(0,
+            MazeParams::size*MazeParams::size-1);
+    std::set<int> holeLocs;
+    while(holeLocs.size() < holeCount) {
+        int place = holePlaces(gen);
+        holeLocs.insert(holePlaces(gen));
+    }
+    for (auto holeLoc : holeLocs) {
+        using namespace MazeParams;
+        float x = left + cellHSize*(holeLoc/size+0.5f);
+        float y = bottom + cellVSize*(holeLoc%size+0.5f);
+        holes.push_back({x,y});
+        addHole(geometry,{x,y});
+        printf("%f,%f\n", x, y);
+    }
 
     vertexCounts[0] = geometry.size();
 
@@ -622,6 +646,8 @@ bool initialize()
 
     ballBodyDef.type = b2_dynamicBody;
     ballBodyDef.linearDamping = 0.08f;
+    ballBodyDef.position.Set(MazeParams::left + MazeParams::cellHSize/2,
+                             MazeParams::bottom + MazeParams::cellVSize/2);
     phys::ball = phys::world.CreateBody(&ballBodyDef);
 
     ballShape.m_radius = 0.5;
@@ -633,13 +659,19 @@ bool initialize()
 
     phys::ball->CreateFixture(&fixtureDef);
 
+
     //and its done
     return true;
 }
 
 void cleanUp()
 {
+    // Reset stuff
+    angleX = 0.0f;
+    angleZ = 0.0f;
     // Clean up, Clean up
+    phys::world.DestroyBody(phys::ball);
+    phys::world.DestroyBody(phys::walls);
     glDeleteProgram(program);
     glDeleteBuffers(2, vbo_geometry);
 }
@@ -748,4 +780,18 @@ void addWalls(std::vector<Vertex>& geometry, b2Body* board,
     else
         wallShape.CreateChain(pts.data(), pts.size());
     phys::walls->CreateFixture(&wallShape, 0.0f);
+}
+
+void addHole(std::vector<Vertex>& geometry, b2Vec2 loc) {
+    for (float angle = 0.0f; angle < M_PI*2; angle += M_PI/60.0f) {
+        geometry.push_back(
+                {{loc.x, -0.99f, loc.y},
+                 {0.0f,0.0f,0.0f}});
+        geometry.push_back(
+                {{loc.x+holeRadius*cosf(angle), -0.99f, loc.y+holeRadius*sinf(angle)},
+                 {0.0f,0.0f,0.0f}});
+        geometry.push_back(
+                {{loc.x+holeRadius*cosf(angle+M_PI/60.0f), -0.99f, loc.y+holeRadius*sinf(angle+M_PI/60.0f)},
+                 {0.0f,0.0f,0.0f}});
+    }
 }
