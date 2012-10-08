@@ -59,6 +59,7 @@ void reshape(int n_w, int n_h);
 void keyboard(unsigned char key, int x_pos, int y_pos);
 void passiveMotion(int, int);
 void specialKey(int, int, int);
+void specialKeyUp(int key, int x, int y);
 
 //--Resource management
 bool initialize();
@@ -111,6 +112,20 @@ int endY;
 
 const float ballRadius = 0.5f;
 
+enum States {
+    RUNNING,
+    WIN,
+    LOSE,
+    MENU
+};
+States state;
+
+// Controls
+bool specialKeys[256];
+int mouseX = 0, mouseY = 0;
+float keyboardSensitivity = 200.0f;
+float mouseSensitivity = 0.5f;
+
 // Utility functions
 std::vector<Vertex> makeSphere(glm::vec3 center, GLfloat rad,
         unsigned int detail, glm::vec3 color);
@@ -119,6 +134,9 @@ void addWalls(std::vector<Vertex>& geometry, b2Body* board,
 void addHole(std::vector<Vertex>& geometry, b2Vec2 loc);
 void addPanel(std::vector<Vertex>& geometry, int x, int y, GLfloat r, GLfloat g,
         GLfloat b);
+void addWallTops(std::vector<Vertex>& geometry, const std::vector<b2Vec2>&
+        wallCorners);
+void changeAngle(float x, float y);
 
 //--Main
 int main(int argc, char **argv)
@@ -128,7 +146,7 @@ int main(int argc, char **argv)
     glutInitDisplayMode(GLUT_DOUBLE | GLUT_DEPTH | GLUT_MULTISAMPLE);
     glutInitWindowSize(w, h);
     // Name and create the Window
-    glutCreateWindow("PA2: Ball Demo");
+    glutCreateWindow("Labyrinth");
 
     // Now that the window is created the GL context is fully set up
     // Because of that we can now initialize GLEW to prepare work with shaders
@@ -147,6 +165,7 @@ int main(int argc, char **argv)
     glutKeyboardFunc(keyboard);// Called if there is keyboard input
     glutPassiveMotionFunc(passiveMotion);
     glutSpecialFunc(specialKey);
+    glutSpecialUpFunc(specialKeyUp);
 
     // Initialize all of our resources(shaders, geometry)
     bool init = initialize();
@@ -212,11 +231,28 @@ void render()
     glutSwapBuffers();
 }
 
-void update()
+void updateRunning()
 {
     //total time
     static float remainder = 0.0f;
     float dt = getDT();// if you have anything moving, use dt.
+
+    // Check the controls
+    if (specialKeys[GLUT_KEY_UP]) {
+        changeAngle(0, keyboardSensitivity*dt);
+    }
+    if (specialKeys[GLUT_KEY_DOWN]) {
+        changeAngle(0, -keyboardSensitivity*dt);
+    }
+    if (specialKeys[GLUT_KEY_LEFT]) {
+        changeAngle(keyboardSensitivity*dt, 0);
+    }
+    if (specialKeys[GLUT_KEY_RIGHT]) {
+        changeAngle(-keyboardSensitivity*dt, 0);
+    }
+    changeAngle(mouseX*mouseSensitivity, mouseY*mouseSensitivity);
+    mouseX = 0;
+    mouseY = 0;
 
     //angle += dt * M_PI/2; //move through 90 degrees a second
     mats::board = //glm::translate( glm::mat4(1.0f), glm::vec3(4.0 * sin(angle), 0.0, 4.0 * cos(angle)));
@@ -303,6 +339,27 @@ void update()
     glutPostRedisplay();//call the display callback
 }
 
+void updateLose() {
+
+}
+
+void update() {
+    switch(state) {
+    case RUNNING:
+        updateRunning();
+        break;/*
+    case LOSE:
+        updateLose();
+        break;
+    case WIN:
+        updateWin();
+        break;
+    case MENU:
+        updateMenu();
+        break;*/
+    }
+}
+
 
 void reshape(int n_w, int n_h)
 {
@@ -316,7 +373,7 @@ void reshape(int n_w, int n_h)
 
 }
 
-void changeAngle(int x, int y)
+void changeAngle(float x, float y)
 {
 	angleX += y * M_PI*0.01;
 	angleZ -= x * M_PI*0.01;
@@ -342,21 +399,12 @@ void keyboard(unsigned char key, int x_pos, int y_pos)
 
 void specialKey(int key, int x, int y)
 {
-	switch (key)
-	{
-	case GLUT_KEY_UP:
-		changeAngle(0,1);
-		break;
-	case GLUT_KEY_DOWN:
-		changeAngle(0,-1);
-		break;
-	case GLUT_KEY_LEFT:
-		changeAngle(1,0);
-		break;
-	case GLUT_KEY_RIGHT:
-		changeAngle(-1,0);
-		break;
-	}
+    specialKeys[key] = true;
+}
+
+void specialKeyUp(int key, int x, int y)
+{
+    specialKeys[key] = false;
 }
 
 void passiveMotion(int x, int y)
@@ -364,7 +412,8 @@ void passiveMotion(int x, int y)
     static int centerX = glutGet(GLUT_WINDOW_WIDTH) / 2;
     static int centerY = glutGet(GLUT_WINDOW_HEIGHT) / 2;
     static bool checkingForMotion = true;
-	changeAngle(centerX-x, centerY-y);
+    mouseX += centerX-x;
+    mouseY += centerY-y;
 
     if (checkingForMotion)
     {
@@ -376,6 +425,12 @@ void passiveMotion(int x, int y)
 
 bool initialize()
 {
+    state = RUNNING;
+    // Reset all of the keys
+    for ( auto &key : specialKeys ) {
+        key = false;
+    }
+
     std::vector<Vertex> geometry; /*{ {{-10.0, -1.0, -10.0}, {0.86, 0.70, 0.49}},
                           {{-10.0, -1.0, 10.0}, {0.86, 0.70, 0.49}},
                           {{-10.0, 1.0, 10.0}, {0.93, 0.79, 0.62}},
@@ -542,6 +597,7 @@ bool initialize()
         };
 
         addWalls(geometry, phys::walls, wallCorners, true);
+        addWallTops(geometry, wallCorners);
     }
 
     // Place the start and finish
@@ -568,14 +624,14 @@ bool initialize()
         float y = bottom + cellVSize*(holeLoc%size+0.5f);
         holes.push_back({x,y});
         addHole(geometry,{x,y});
-        printf("%f,%f\n", x, y);
+        //printf("%f,%f\n", x, y);
     }
 
     vertexCounts[0] = geometry.size();
 
     // Also, a sphere
     auto ballModel = makeSphere(glm::vec3{0,0,0}, ballRadius, 4,
-            glm::vec3{0,0.0,0.5});
+            glm::vec3{0,0.0,0.8});
     vertexCounts[1] = ballModel.size();
 
     // Create a Vertex Buffer object to store these vertex infos on the GPU
@@ -680,7 +736,7 @@ bool initialize()
     //  if you will be having a moving camera the view matrix will need to more dynamic
     //  ...Like you should update it before you render more dynamic 
     //  for this project having them static will be fine
-    mats::view = glm::lookAt( glm::vec3(0.0, 12.0, -24.0), //Eye Position
+    mats::view = glm::lookAt( glm::vec3(0.0, 24.0, -24.0), //Eye Position
                         glm::vec3(0.0, 0.0, 0.0), //Focus point
                         glm::vec3(0.0, 1.0, 0.0)); //Positive Y is up
 
@@ -695,6 +751,9 @@ bool initialize()
 
     // Antialiasing
     glEnable(GL_MULTISAMPLE);
+
+    // Allow better keyboard control
+    glutIgnoreKeyRepeat(1);
 
     // Setup physics
     // Walls
@@ -856,13 +915,13 @@ void addWalls(std::vector<Vertex>& geometry, b2Body* board,
 void addHole(std::vector<Vertex>& geometry, b2Vec2 loc) {
     for (float angle = 0.0f; angle < M_PI*2; angle += M_PI/60.0f) {
         geometry.push_back(
-                {{loc.x, -0.99f, loc.y},
+                {{loc.x, -0.95f, loc.y},
                  {0.0f,0.0f,0.0f}});
         geometry.push_back(
-                {{loc.x+holeRadius*cosf(angle), -0.99f, loc.y+holeRadius*sinf(angle)},
+                {{loc.x+holeRadius*cosf(angle), -0.95f, loc.y+holeRadius*sinf(angle)},
                  {0.0f,0.0f,0.0f}});
         geometry.push_back(
-                {{loc.x+holeRadius*cosf(angle+M_PI/60.0f), -0.99f, loc.y+holeRadius*sinf(angle+M_PI/60.0f)},
+                {{loc.x+holeRadius*cosf(angle+M_PI/60.0f), -0.95f, loc.y+holeRadius*sinf(angle+M_PI/60.0f)},
                  {0.0f,0.0f,0.0f}});
     }
 }
@@ -875,10 +934,91 @@ void addPanel(std::vector<Vertex>& geometry, int x, int y, GLfloat r, GLfloat g,
     GLfloat pRight = left + (x+1)*cellHSize - wallThickness;
     GLfloat pBottom = bottom + y*cellVSize + wallThickness;
     GLfloat pTop = bottom + (y+1)*cellVSize - wallThickness;
-    geometry.push_back({{pLeft, -0.99f, pBottom}, {r, g, b}});
-    geometry.push_back({{pRight, -0.99f, pBottom}, {r, g, b}});
-    geometry.push_back({{pLeft, -0.99f, pTop}, {r, g, b}});
-    geometry.push_back({{pRight, -0.99f, pTop}, {r, g, b}});
-    geometry.push_back({{pLeft, -0.99f, pTop}, {r, g, b}});
-    geometry.push_back({{pRight, -0.99f, pBottom}, {r, g, b}});
+    geometry.push_back({{pLeft, -0.95f, pBottom}, {r, g, b}});
+    geometry.push_back({{pRight, -0.95f, pBottom}, {r, g, b}});
+    geometry.push_back({{pLeft, -0.95f, pTop}, {r, g, b}});
+    geometry.push_back({{pRight, -0.95f, pTop}, {r, g, b}});
+    geometry.push_back({{pLeft, -0.95f, pTop}, {r, g, b}});
+    geometry.push_back({{pRight, -0.95f, pBottom}, {r, g, b}});
+}
+
+#ifndef CALLBACK
+#define CALLBACK
+#endif
+
+std::vector<Vertex> wallTopVertices;
+void CALLBACK addWallTopVertex(GLvoid *vertex) {
+    Vertex v = *(Vertex*) vertex;
+    wallTopVertices.push_back(v);
+}
+
+void CALLBACK combineCallback(GLdouble coords[3],
+                     Vertex *vertex_data[4],
+                     GLfloat weight[4], Vertex **dataOut )
+{
+   int i;
+   Vertex *vertex = new Vertex;
+
+   vertex->position[0] = coords[0];
+   vertex->position[1] = coords[1];
+   vertex->position[2] = coords[2];
+   for (i = 0; i < 3; i++)
+      vertex->color[i] = vertex_data[0]->color[i];
+   *dataOut = vertex;
+}
+
+// Needed to force triangles
+void CALLBACK edgeCallback(){return;}
+
+void addWallTops(std::vector<Vertex>& geometry, const std::vector<b2Vec2>&
+        wallCorners) {
+    using namespace MazeParams;
+
+    wallTopVertices.clear();
+
+    // Run the tesselator
+    auto tess = gluNewTess();
+    gluTessCallback(tess, GLU_TESS_VERTEX, (GLvoid (*) ()) addWallTopVertex);
+    gluTessCallback(tess, GLU_TESS_COMBINE, (GLvoid (*) ()) combineCallback);
+    gluTessCallback(tess, GLU_TESS_EDGE_FLAG_DATA,
+            (GLvoid (*) ()) edgeCallback);
+    gluTessProperty(tess, GLU_TESS_WINDING_RULE, GLU_TESS_WINDING_POSITIVE);
+
+    gluTessBeginPolygon(tess, nullptr);
+
+    // Add the outer walls
+    gluTessBeginContour(tess);
+    std::vector<std::vector<double>> outsideCoords{{left, 0.0, top},
+        {right, 0.0, top},
+        {right, 0.0, bottom},
+        {left, 0.0, bottom}};
+    for (auto coords : outsideCoords) {
+        Vertex *vertex = new Vertex{{float(coords[0]), float(coords[1]), float(coords[2])},
+                         TOP_COLOR};
+        gluTessVertex(tess, coords.data(), vertex);
+    }
+    gluTessEndContour(tess);
+
+    // Add the inner walls
+    gluTessBeginContour(tess);
+    for (auto corner : wallCorners) {
+        double *coords = new double[3];
+        coords[0] = corner.x;
+        coords[1] = 0;
+        coords[2] = corner.y;
+        Vertex *vertex = new Vertex{{float(coords[0]), float(coords[1]), float(coords[2])},
+                         TOP_COLOR};
+        gluTessVertex(tess, coords, vertex);
+    }
+    gluTessEndContour(tess);
+
+    gluTessEndPolygon(tess);
+    gluDeleteTess(tess);
+
+    // Shove the new vertices into the geometry
+
+    for ( auto v : wallTopVertices) {
+        geometry.push_back(v);
+    }
+    //geometry.insert(geometry.end(), wallTopVertices.begin(), wallTopVertices.end());
 }
