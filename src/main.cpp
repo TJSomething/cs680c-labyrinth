@@ -13,6 +13,8 @@
 
 #include <Box2D/Box2D.h>
 
+#include "maze.h"
+
 //--Data types
 //This object will define the attributes of a vertex(position, color, etc...)
 struct Vertex
@@ -83,6 +85,20 @@ namespace phys {
 const float g = 9.8;
 const int frequency = 120;
 const float timeStep = 1/float(frequency);
+
+// Maze parameters
+namespace MazeParams {
+    const int size = 5;
+    const float left = -10.0f;
+    const float bottom = -10.0f;
+    const float right = 10.0f;
+    const float top = 10.0f;
+    const float cellHSize = (right - left) / size;
+    const float cellVSize = (top - bottom) / size;
+    const float wallThickness = 0.2f;
+}
+
+std::vector<b2Vec2> holes;
 
 // Utility functions
 std::vector<Vertex> makeSphere(glm::vec3 center, GLfloat rad,
@@ -338,22 +354,132 @@ bool initialize()
                           {{10.0, -1.0, 10.0}, {0.86, 0.70, 0.49}}
                         }*/
     // Add the floor
-    geometry.push_back(Vertex{{-10.0f, -1.0f, -10.0f}, FLOOR_COLOR});
-    geometry.push_back(Vertex{{10.0f, -1.0f, -10.0f}, FLOOR_COLOR});
-    geometry.push_back(Vertex{{-10.0f, -1.0f, 10.0f}, FLOOR_COLOR});
-    geometry.push_back(Vertex{{10.0f, -1.0f, 10.0f}, FLOOR_COLOR});
-    geometry.push_back(Vertex{{-10.0f, -1.0f, 10.0f}, FLOOR_COLOR});
-    geometry.push_back(Vertex{{10.0f, -1.0f, -10.0f}, FLOOR_COLOR});
+    geometry.push_back(Vertex{{MazeParams::left, -1.0f, MazeParams::bottom}, FLOOR_COLOR});
+    geometry.push_back(Vertex{{MazeParams::right, -1.0f, MazeParams::bottom}, FLOOR_COLOR});
+    geometry.push_back(Vertex{{MazeParams::left, -1.0f, MazeParams::top}, FLOOR_COLOR});
+    geometry.push_back(Vertex{{MazeParams::right, -1.0f, MazeParams::top}, FLOOR_COLOR});
+    geometry.push_back(Vertex{{MazeParams::left, -1.0f, MazeParams::top}, FLOOR_COLOR});
+    geometry.push_back(Vertex{{MazeParams::right, -1.0f, MazeParams::bottom}, FLOOR_COLOR});
     // And walls
     b2BodyDef wallBodyDef;
     phys::walls = phys::world.CreateBody(&wallBodyDef);
-    std::cout << geometry.size() << std::endl;
-    addWalls(geometry, phys::walls, {{10.0f,10.0f},
-         {-10.0f,10.0f},
-         {-10.0f,-10.0f},
-         {10.0f,-10.0f}}, true);
-    addWalls(geometry, phys::walls, {{5,0}, {-5, 0}}, false);
-    std::cout << geometry.size() << std::endl;
+    addWalls(geometry, phys::walls, {{MazeParams::right,MazeParams::top},
+         {MazeParams::left,MazeParams::top},
+         {MazeParams::left,MazeParams::bottom},
+         {MazeParams::right,MazeParams::bottom}}, true);
+    auto maze = dfsBacktracker(MazeParams::size, 0, 0, time(NULL));
+    // Build the walls to the maze
+    {
+        using namespace MazeParams;
+        int x = 0;
+        int y = 0;
+        int dx[4] = {1, 0, -1, 0};
+        int dy[4] = {0, 1, 0, -1};
+        int dir = 0;
+        float cornerX, cornerY;
+        bool out = false;
+        //printf("a:%d\n", maze.getRight(0,0));
+
+        std::vector<b2Vec2> wallCorners;
+        wallCorners.push_back({left + wallThickness, bottom + wallThickness});
+        do {
+            // Turn right
+            dir = (dir == 0) ? 3 : dir-1;
+            // If we need to turn, make a corner
+            //printf("%d,%d,%d\n", x,y,dir);
+            switch (dir) {
+            case 0: // Right
+                cornerX = left +
+                          cellHSize*(x+1) -
+                          wallThickness;
+                cornerY = bottom +
+                          cellVSize*(y) +
+                          wallThickness;
+                break;
+            case 1: // Up
+                cornerX = left +
+                          cellHSize*(x+1) -
+                          wallThickness;
+                cornerY = bottom +
+                          cellVSize*(y+1) -
+                          wallThickness;
+                break;
+            case 2: // Left
+                cornerX = left +
+                          cellHSize*(x) +
+                          wallThickness;
+                cornerY = bottom +
+                          cellVSize*(y+1) -
+                          wallThickness;
+                break;
+            case 3: // Down
+                cornerX = left +
+                          cellHSize*(x) +
+                          wallThickness;
+                cornerY = bottom +
+                          cellVSize*(y) +
+                          wallThickness;
+                break;
+            }
+            wallCorners.push_back(
+                {cornerX,
+                 cornerY});
+            while (!maze.getDirection(x,y,(Maze::direction) dir)) {
+                switch (dir) {
+                case 0: // Right
+                    cornerX = left +
+                              cellHSize*(x+1) -
+                              wallThickness;
+                    cornerY = bottom +
+                              cellVSize*(y) +
+                              wallThickness;
+                    break;
+                case 1: // Up
+                    cornerX = left +
+                              cellHSize*(x+1) -
+                              wallThickness;
+                    cornerY = bottom +
+                              cellVSize*(y+1) -
+                              wallThickness;
+                    break;
+                case 2: // Left
+                    cornerX = left +
+                              cellHSize*(x) +
+                              wallThickness;
+                    cornerY = bottom +
+                              cellVSize*(y+1) -
+                              wallThickness;
+                    break;
+                case 3: // Down
+                    cornerX = left +
+                              cellHSize*(x) +
+                              wallThickness;
+                    cornerY = bottom +
+                              cellVSize*(y) +
+                              wallThickness;
+                    break;
+                }
+                wallCorners.push_back(
+                    {cornerX,
+                     cornerY});
+                // Turn left
+                dir = (dir+1)%4;
+                //printf("%d\n", wallCorners.size());
+                //printf("%f,%f\n", cornerX, cornerY);
+            }
+            //printf("%d,%d,%d,%d\n", x,y,dir,maze.getDirection(x,y,(Maze::direction) dir));
+
+            if (!(x == 0 && y == 0 && out == true)) {
+                x += dx[dir];
+                y += dy[dir];
+                out = true;
+            }
+        } while (!(x == 0 && y == 0 && out == true));
+
+        addWalls(geometry, phys::walls, wallCorners, false);
+    }
+
+    // Make holes
 
 
     vertexCounts[0] = geometry.size();
@@ -602,17 +728,17 @@ void addWalls(std::vector<Vertex>& geometry, b2Body* board,
     // Add the walls to the geometry
     for (int i = 0; i < ptCount; i++) {
         int i2 = (i+1)%pts.size();
-        geometry.push_back({{pts[i].x, 1.0f, pts[i].y},
+        geometry.push_back({{pts[i].x, 0.0f, pts[i].y},
             TOP_COLOR});
         geometry.push_back({{pts[i].x, -1.0f, pts[i].y},
             FLOOR_COLOR});
-        geometry.push_back({{pts[i2].x, 1.0f, pts[i2].y},
+        geometry.push_back({{pts[i2].x, 0.0f, pts[i2].y},
             TOP_COLOR});
         geometry.push_back({{pts[i].x, -1.0f, pts[i].y},
             FLOOR_COLOR});
         geometry.push_back({{pts[i2].x, -1.0f, pts[i2].y},
             FLOOR_COLOR});
-        geometry.push_back({{pts[i2].x, 1.0f, pts[i2].y},
+        geometry.push_back({{pts[i2].x, 0.0f, pts[i2].y},
             TOP_COLOR});
     }
     // Add the walls to the physics
