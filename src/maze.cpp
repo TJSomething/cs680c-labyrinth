@@ -10,6 +10,7 @@
 #include <array>
 #include <random>
 #include <functional>
+#include <cassert>
 
 const int Maze::dx[4] = {1,0,-1,0};
 const int Maze::dy[4] = {0,1,0,-1};
@@ -109,12 +110,24 @@ Maze dfsBacktracker(int size, int startX, int startY, int seed) {
     usedCells[size*size] = true;
     moveStack.push_back(index(startX, startY));
     usedCells[index(startX,startY)] = true;
+    int depth = 0;
 
     result.fill();
+    result.setStartX(startX);
+    result.setStartY(startY);
     //printf("a:%d\n", result.getBottom(2,0));
     while (!moveStack.empty()) {
-        std::vector<int> nearby;
         std::array<int,2> pos = unindex(moveStack.back());
+
+        // Keep track of the deepest node and use it as the finish
+        if (moveStack.size() > depth) {
+            depth = moveStack.size();
+            result.setEndX(pos[0]);
+            result.setEndY(pos[1]);
+        }
+
+        // Store all the adjacent, unvisited nodes
+        std::vector<int> nearby;
         if (!usedCells[index(pos[0]+1, pos[1])] &&
                 pos[0] != size)
             nearby.push_back(0);
@@ -127,8 +140,11 @@ Maze dfsBacktracker(int size, int startX, int startY, int seed) {
         if (!usedCells[index(pos[0], pos[1]-1)] &&
                 pos[1] != 0)
             nearby.push_back(3);
+        // If there are no such nodes, go back
         if (nearby.empty())
             moveStack.pop_back();
+        // Otherwise, break the wall to one of those nodes randomly and go
+        // there.
         else {
             int i = std::uniform_int_distribution<int>(0, nearby.size()-1)(gen);
             //printf("%d,%d,%d\n", pos[0], pos[1], nearby[i]);
@@ -172,6 +188,42 @@ bool Maze::getDirection(int x, int y, direction dir) {
     case DOWN:
         return getBottom(x,y);
     }
+}
+
+int Maze::getEndX() const {
+    return endX;
+}
+
+void Maze::setEndX(int endX) {
+    assert(endX >= 0 && endX < this->openLeft.size());
+    this->endX = endX;
+}
+
+int Maze::getEndY() const {
+    return endY;
+}
+
+void Maze::setEndY(int endY) {
+    assert(endY >= 0 && endY < this->openLeft.size());
+    this->endY = endY;
+}
+
+int Maze::getStartX() const {
+    return startX;
+}
+
+void Maze::setStartX(int startX) {
+    assert(startX >= 0 && startX < this->openLeft.size());
+    this->startX = startX;
+}
+
+int Maze::getStartY() const {
+    return startY;
+}
+
+void Maze::setStartY(int startY) {
+    assert(startY >= 0 && startY < this->openLeft.size());
+    this->startY = startY;
 }
 
 void Maze::setDirection(int x, int y, direction dir, bool setting) {

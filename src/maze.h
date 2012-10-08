@@ -31,12 +31,24 @@ public:
     int getSize() const;
     bool getDirection(int,int,direction);
     void setDirection(int,int,direction,bool);
+    int getEndX() const;
+    void setEndX(int endX);
+    int getEndY() const;
+    void setEndY(int endY);
+    int getStartX() const;
+    void setStartX(int startX);
+    int getStartY() const;
+    void setStartY(int startY);
 
 private:
     std::vector<std::vector<bool> > openTop;
     std::vector<std::vector<bool> > openLeft;
     const static int offsetX[4]; // = {1,0,0,0};
     const static int offsetY[4]; // = {0,0,0,1};
+    int startX;
+    int startY;
+    int endX;
+    int endY;
 };
 
 Maze dfsBacktracker(int, int, int, int);

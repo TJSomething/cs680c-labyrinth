@@ -75,6 +75,7 @@ float angleZ = 0.0f;
 const float angleXLimit = 3;
 const float angleZLimit = 3;
 float ballX = 0.0f;
+float ballY = 0.0f;
 float ballZ = 0.0f;
 
 // Physics
@@ -105,19 +106,26 @@ const int holeCount = 5;
 const float holeRadius = 1.0;
 std::vector<b2Vec2> holes;
 
+int endX;
+int endY;
+
+const float ballRadius = 0.5f;
+
 // Utility functions
 std::vector<Vertex> makeSphere(glm::vec3 center, GLfloat rad,
         unsigned int detail, glm::vec3 color);
 void addWalls(std::vector<Vertex>& geometry, b2Body* board,
         std::vector<b2Vec2> pts, bool closeLoop);
 void addHole(std::vector<Vertex>& geometry, b2Vec2 loc);
+void addPanel(std::vector<Vertex>& geometry, int x, int y, GLfloat r, GLfloat g,
+        GLfloat b);
 
 //--Main
 int main(int argc, char **argv)
 {
     // Initialize glut
     glutInit(&argc, argv);
-    glutInitDisplayMode(GLUT_DOUBLE | GLUT_DEPTH);
+    glutInitDisplayMode(GLUT_DOUBLE | GLUT_DEPTH | GLUT_MULTISAMPLE);
     glutInitWindowSize(w, h);
     // Name and create the Window
     glutCreateWindow("PA2: Ball Demo");
@@ -215,13 +223,42 @@ void update()
     		glm::rotate(glm::mat4(1.0), angleZ, glm::vec3(0.0f, 0.0f, 1.0f)) *
     		glm::rotate(glm::mat4(1.0), angleX, glm::vec3(1.0f, 0.0f, 0.0f));
     mats::ball =
-            glm::translate(glm::mat4(1.0f), glm::vec3(ballX, -0.5f, ballZ))*mats::board;
+            glm::translate(glm::mat4(1.0f), glm::vec3(ballX, ballY, ballZ))*mats::board;
 
+    // Check if the ball is in a hole
+    bool inHole = false;
+    b2Vec2 holeLoc;
+    for (auto hole : holes) {
+        if ( (hole - phys::ball->GetWorldCenter()).Length() < holeRadius ) {
+            inHole = true;
+            holeLoc = hole;
+            break;
+        }
+    }
     // Apply force to the ball
-    glm::vec3 normal =
-            glm::vec3(mats::board[0][1],
-                      mats::board[1][1],
-                      mats::board[2][1]);
+    glm::vec3 normal;
+    if (!inHole)
+        normal = glm::vec3(mats::board[0][1],
+                           mats::board[1][1],
+                           mats::board[2][1]);
+    else {
+        float dist = (holeLoc - phys::ball->GetWorldCenter()).Length();
+        // If the ball is entirely in the hole
+        if (dist < holeRadius - ballRadius) {
+            b2Vec2 centerToBall = .2*(phys::ball->GetWorldCenter() - holeLoc);
+            normal = glm::vec3(centerToBall.x,1,centerToBall.y);
+        } else {
+            b2Vec2 centerToEdge = phys::ball->GetWorldCenter() - holeLoc;
+            centerToEdge.Normalize();
+            centerToEdge *= holeRadius;
+            b2Vec2 touchPoint = holeLoc + centerToEdge;
+            b2Vec2 inward =
+                    -(phys::ball->GetWorldCenter() - touchPoint);
+            float upward =
+                    sqrtf(1-inward.LengthSquared());
+            normal = glm::vec3(mats::board * glm::vec4(glm::normalize(glm::vec3(inward.x, upward, inward.y)), 0));
+        }
+    }
     glm::vec3 normalForce = phys::ball->GetMass() * g * normal;
     glm::vec3 down{0,-1,0};
     // The crossproduct of down and the normal force is perpendicular to
@@ -232,6 +269,12 @@ void update()
     b2Vec2 force = b2Vec2(perpForce.z, -perpForce.x);
     phys::ball->ApplyForce(force, phys::ball->GetWorldCenter());
 
+    // Fake a friction force caused by being in the hole
+    float dist = (holeLoc - phys::ball->GetWorldCenter()).Length();
+    if (inHole && dist < holeRadius - ballRadius) {
+        phys::ball->ApplyForceToCenter(-0.2*phys::ball->GetLinearVelocity());
+    }
+
     // Work the physics
     // Calculate the number of timesteps that have elapsed
     remainder += dt;
@@ -241,6 +284,18 @@ void update()
     }
 
     ballX = phys::ball->GetWorldCenter().x;
+    // Balls fall in holes
+    if (inHole) {
+        if (dist < holeRadius - ballRadius) {
+            // Euler integration is fine here
+            // This equation should give the right velocity for falling
+            ballY -= g * sqrtf(-2.0f/g*(ballY+0.5))*dt;
+        } else {
+            ballY = -0.5 - (holeRadius-dist);
+        }
+    } else {
+        ballY = -0.5;
+    }
     ballZ = phys::ball->GetWorldCenter().y;
     //std::cout << ballX << ", " << ballZ << std::endl;
 
@@ -375,6 +430,7 @@ bool initialize()
          {MazeParams::left,MazeParams::top},
          {MazeParams::left,MazeParams::bottom},
          {MazeParams::right,MazeParams::bottom}}, true);
+
     auto maze = dfsBacktracker(MazeParams::size, 0, 0, time(NULL));
     // Build the walls to the maze
     {
@@ -488,14 +544,23 @@ bool initialize()
         addWalls(geometry, phys::walls, wallCorners, true);
     }
 
+    // Place the start and finish
+    endX = maze.getEndX();
+    endY = maze.getEndY();
+    addPanel(geometry, 0, 0, 0, 1, 0);
+    addPanel(geometry, endX, endY, 1, 0, 0);
+
     // Make holes
-    std::mt19937 gen;
+    std::mt19937 gen(time(0));
     std::uniform_int_distribution<int> holePlaces(0,
             MazeParams::size*MazeParams::size-1);
     std::set<int> holeLocs;
     while(holeLocs.size() < holeCount) {
         int place = holePlaces(gen);
-        holeLocs.insert(holePlaces(gen));
+        int x = place/MazeParams::size;
+        int y = place%MazeParams::size;
+        if (!((x == 0 && y == 0) || (x == endX && y == endY)))
+           holeLocs.insert(place);
     }
     for (auto holeLoc : holeLocs) {
         using namespace MazeParams;
@@ -509,7 +574,7 @@ bool initialize()
     vertexCounts[0] = geometry.size();
 
     // Also, a sphere
-    auto ballModel = makeSphere(glm::vec3{0,0,0}, 0.5f, 4,
+    auto ballModel = makeSphere(glm::vec3{0,0,0}, ballRadius, 4,
             glm::vec3{0,0.0,0.5});
     vertexCounts[1] = ballModel.size();
 
@@ -628,6 +693,9 @@ bool initialize()
     glEnable(GL_DEPTH_TEST);
     glDepthFunc(GL_LESS);
 
+    // Antialiasing
+    glEnable(GL_MULTISAMPLE);
+
     // Setup physics
     // Walls
     /*b2BodyDef wallBodyDef;
@@ -659,6 +727,8 @@ bool initialize()
 
     phys::ball->CreateFixture(&fixtureDef);
 
+    ballY = -0.5f;
+
 
     //and its done
     return true;
@@ -669,6 +739,7 @@ void cleanUp()
     // Reset stuff
     angleX = 0.0f;
     angleZ = 0.0f;
+    holes.clear();
     // Clean up, Clean up
     phys::world.DestroyBody(phys::ball);
     phys::world.DestroyBody(phys::walls);
@@ -794,4 +865,20 @@ void addHole(std::vector<Vertex>& geometry, b2Vec2 loc) {
                 {{loc.x+holeRadius*cosf(angle+M_PI/60.0f), -0.99f, loc.y+holeRadius*sinf(angle+M_PI/60.0f)},
                  {0.0f,0.0f,0.0f}});
     }
+}
+
+void addPanel(std::vector<Vertex>& geometry, int x, int y, GLfloat r, GLfloat g,
+        GLfloat b) {
+    using namespace MazeParams;
+    // The p is for panel
+    GLfloat pLeft = left + x*cellHSize + wallThickness;
+    GLfloat pRight = left + (x+1)*cellHSize - wallThickness;
+    GLfloat pBottom = bottom + y*cellVSize + wallThickness;
+    GLfloat pTop = bottom + (y+1)*cellVSize - wallThickness;
+    geometry.push_back({{pLeft, -0.99f, pBottom}, {r, g, b}});
+    geometry.push_back({{pRight, -0.99f, pBottom}, {r, g, b}});
+    geometry.push_back({{pLeft, -0.99f, pTop}, {r, g, b}});
+    geometry.push_back({{pRight, -0.99f, pTop}, {r, g, b}});
+    geometry.push_back({{pLeft, -0.99f, pTop}, {r, g, b}});
+    geometry.push_back({{pRight, -0.99f, pBottom}, {r, g, b}});
 }
