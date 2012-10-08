@@ -1,0 +1,717 @@
+#LyX 2.0 created this file. For more info see http://www.lyx.org/
+\lyxformat 413
+\begin_document
+\begin_header
+\textclass book
+\begin_preamble
+
+\end_preamble
+\use_default_options false
+\maintain_unincluded_children false
+\language english
+\language_package default
+\inputencoding auto
+\fontencoding global
+\font_roman palatino
+\font_sans lmss
+\font_typewriter lmtt
+\font_default_family default
+\use_non_tex_fonts false
+\font_sc false
+\font_osf false
+\font_sf_scale 100
+\font_tt_scale 100
+
+\graphics default
+\default_output_format default
+\output_sync 0
+\bibtex_command default
+\index_command default
+\paperfontsize 12
+\spacing onehalf
+\use_hyperref false
+\papersize letterpaper
+\use_geometry true
+\use_amsmath 1
+\use_esint 1
+\use_mhchem 1
+\use_mathdots 1
+\cite_engine basic
+\use_bibtopic false
+\use_indices false
+\paperorientation portrait
+\suppress_date false
+\use_refstyle 0
+\index Index
+\shortcut idx
+\color #008000
+\end_index
+\leftmargin 1.25in
+\topmargin 1in
+\rightmargin 0.75in
+\bottommargin 1in
+\secnumdepth 3
+\tocdepth 3
+\paragraph_separation indent
+\paragraph_indentation default
+\quotes_language english
+\papercolumns 1
+\papersides 2
+\paperpagestyle default
+\tracking_changes false
+\output_changes false
+\html_math_output 0
+\html_css_as_file 0
+\html_be_strict false
+\end_header
+
+\begin_body
+
+\begin_layout Title
+Computer Graphics: Labyrinth
+\end_layout
+
+\begin_layout Author
+Thomas Kelly
+\end_layout
+
+\begin_layout Date
+October 8, 2012
+\end_layout
+
+\begin_layout Chapter*
+Overview
+\end_layout
+
+\begin_layout Standard
+This is an implementation of the classic board game Labyrinth, made for
+ the PC.
+ It implements all of the necessary features, as well as multiple mazes
+ using a maze generating algorithm.
+\end_layout
+
+\begin_layout Chapter
+User Manual
+\end_layout
+
+\begin_layout Section*
+Play
+\end_layout
+
+\begin_layout Standard
+\begin_inset Float figure
+wide false
+sideways false
+status collapsed
+
+\begin_layout Plain Layout
+\align center
+\begin_inset Graphics
+	filename start.png
+	width 100col%
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Plain Layout
+\begin_inset Caption
+
+\begin_layout Plain Layout
+\begin_inset CommandInset label
+LatexCommand label
+name "fig:start"
+
+\end_inset
+
+A board at the start of the game.
+\end_layout
+
+\end_inset
+
+
+\end_layout
+
+\end_inset
+
+During normal play, as seen in Figure 
+\begin_inset CommandInset ref
+LatexCommand vref
+reference "fig:start"
+
+\end_inset
+
+, the goal is to get the blue ball from the green square (the start) to
+ the red square (the finish), while avoiding the holes.
+ Note that the ball cannot go through the walls, which are indicated by
+ a lighter shade of tan.
+ In order to get the ball to the finish, one can tilt the board forward,
+ backward, left, and right in order to move the ball.
+\end_layout
+
+\begin_layout Standard
+These controls are available during normal play:
+\end_layout
+
+\begin_layout Plain Layout
+\begin_inset Tabular
+<lyxtabular version="3" rows="5" columns="2">
+<features tabularvalignment="middle">
+<column alignment="center" valignment="top" width="0pt">
+<column alignment="left" valignment="top" width="0">
+<row>
+<cell alignment="center" valignment="top" usebox="none">
+\begin_inset Text
+
+\begin_layout Plain Layout
+\begin_inset Formula $\Downarrow$
+\end_inset
+
+ 
+\end_layout
+
+\end_inset
+</cell>
+<cell alignment="left" valignment="top" usebox="none">
+\begin_inset Text
+
+\begin_layout Plain Layout
+tilt the board toward the player
+\end_layout
+
+\end_inset
+</cell>
+</row>
+<row>
+<cell alignment="center" valignment="top" usebox="none">
+\begin_inset Text
+
+\begin_layout Plain Layout
+\begin_inset Formula $\Uparrow$
+\end_inset
+
+
+\end_layout
+
+\end_inset
+</cell>
+<cell alignment="left" valignment="top" usebox="none">
+\begin_inset Text
+
+\begin_layout Plain Layout
+tilt the board away from the player
+\end_layout
+
+\end_inset
+</cell>
+</row>
+<row>
+<cell alignment="center" valignment="top" usebox="none">
+\begin_inset Text
+
+\begin_layout Plain Layout
+\begin_inset Formula $\Rightarrow$
+\end_inset
+
+
+\end_layout
+
+\end_inset
+</cell>
+<cell alignment="left" valignment="top" usebox="none">
+\begin_inset Text
+
+\begin_layout Plain Layout
+tilt the board to the player's right
+\end_layout
+
+\end_inset
+</cell>
+</row>
+<row>
+<cell alignment="center" valignment="top" usebox="none">
+\begin_inset Text
+
+\begin_layout Plain Layout
+\begin_inset Formula $\Leftarrow$
+\end_inset
+
+
+\end_layout
+
+\end_inset
+</cell>
+<cell alignment="left" valignment="top" usebox="none">
+\begin_inset Text
+
+\begin_layout Plain Layout
+tilt the board to the player's left
+\end_layout
+
+\end_inset
+</cell>
+</row>
+<row>
+<cell alignment="center" valignment="top" usebox="none">
+\begin_inset Text
+
+\begin_layout Plain Layout
+ESC
+\end_layout
+
+\end_inset
+</cell>
+<cell alignment="left" valignment="top" usebox="none">
+\begin_inset Text
+
+\begin_layout Plain Layout
+open the menu
+\end_layout
+
+\end_inset
+</cell>
+</row>
+</lyxtabular>
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Section*
+Main Menu
+\end_layout
+
+\begin_layout Standard
+\begin_inset Float figure
+wide false
+sideways false
+status open
+
+\begin_layout Plain Layout
+\align center
+\begin_inset Graphics
+	filename settings.png
+	width 100col%
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Plain Layout
+\begin_inset Caption
+
+\begin_layout Plain Layout
+\begin_inset CommandInset label
+LatexCommand label
+name "fig:The-menu"
+
+\end_inset
+
+The menu
+\end_layout
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Plain Layout
+
+\end_layout
+
+\end_inset
+
+The main menu from Figure 
+\begin_inset CommandInset ref
+LatexCommand vref
+reference "fig:The-menu"
+
+\end_inset
+
+ is a hub for all actions that are outside of the actual game.
+ The menu gives several options.
+ At any given time, one is selected and indicated in yellow.
+\end_layout
+
+\begin_layout Itemize
+Start: Resumes play.
+\end_layout
+
+\begin_layout Itemize
+Restart: Resets the board and the ball and generates a new level.
+\end_layout
+
+\begin_layout Itemize
+Settings: Goes to the Settings Menu.
+\end_layout
+
+\begin_layout Itemize
+Exit: Quits the game.
+\end_layout
+
+\begin_layout Standard
+This menu may be navigated with the following controls:
+\end_layout
+
+\begin_layout Standard
+\begin_inset Tabular
+<lyxtabular version="3" rows="3" columns="2">
+<features tabularvalignment="middle">
+<column alignment="center" valignment="top" width="0pt">
+<column alignment="left" valignment="top" width="0">
+<row>
+<cell alignment="center" valignment="top" usebox="none">
+\begin_inset Text
+
+\begin_layout Plain Layout
+\begin_inset Formula $\Downarrow$
+\end_inset
+
+ 
+\end_layout
+
+\end_inset
+</cell>
+<cell alignment="left" valignment="top" usebox="none">
+\begin_inset Text
+
+\begin_layout Plain Layout
+go down one option
+\end_layout
+
+\end_inset
+</cell>
+</row>
+<row>
+<cell alignment="center" valignment="top" usebox="none">
+\begin_inset Text
+
+\begin_layout Plain Layout
+\begin_inset Formula $\Uparrow$
+\end_inset
+
+
+\end_layout
+
+\end_inset
+</cell>
+<cell alignment="left" valignment="top" usebox="none">
+\begin_inset Text
+
+\begin_layout Plain Layout
+go up one options
+\end_layout
+
+\end_inset
+</cell>
+</row>
+<row>
+<cell alignment="center" valignment="top" usebox="none">
+\begin_inset Text
+
+\begin_layout Plain Layout
+Enter
+\end_layout
+
+\end_inset
+</cell>
+<cell alignment="left" valignment="top" usebox="none">
+\begin_inset Text
+
+\begin_layout Plain Layout
+perform the indicated action
+\end_layout
+
+\end_inset
+</cell>
+</row>
+</lyxtabular>
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Section*
+Settings Menu
+\end_layout
+
+\begin_layout Standard
+\begin_inset Float figure
+wide false
+sideways false
+status open
+
+\begin_layout Plain Layout
+\align center
+\begin_inset Graphics
+	filename settings1.png
+	width 100col%
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Plain Layout
+\begin_inset Caption
+
+\begin_layout Plain Layout
+\begin_inset CommandInset label
+LatexCommand label
+name "fig:The-menu-1"
+
+\end_inset
+
+The settings menu
+\end_layout
+
+\end_inset
+
+
+\end_layout
+
+\end_inset
+
+The settings menu seen in Figure 
+\begin_inset CommandInset ref
+LatexCommand vref
+reference "fig:The-menu-1"
+
+\end_inset
+
+ is allows one to adjust gameplay parameters.
+ The options in this menu are:
+\end_layout
+
+\begin_layout Itemize
+Mouse sensitivity: Allows one to adjust how sensitive the tilt of the board
+ is to mouse movement.
+\end_layout
+
+\begin_layout Itemize
+Keyboard sensitivity: Allows one to adjust how quickly the board tilts while
+ controlling with the keyboard.
+\end_layout
+
+\begin_layout Itemize
+Back: Goes back to the Main Menu.
+\end_layout
+
+\begin_layout Standard
+This menu may be navigated with the following controls:
+\end_layout
+
+\begin_layout Standard
+\begin_inset Tabular
+<lyxtabular version="3" rows="5" columns="2">
+<features tabularvalignment="middle">
+<column alignment="center" valignment="top" width="0pt">
+<column alignment="left" valignment="top" width="0">
+<row>
+<cell alignment="center" valignment="top" usebox="none">
+\begin_inset Text
+
+\begin_layout Plain Layout
+\begin_inset Formula $\Downarrow$
+\end_inset
+
+ 
+\end_layout
+
+\end_inset
+</cell>
+<cell alignment="left" valignment="top" usebox="none">
+\begin_inset Text
+
+\begin_layout Plain Layout
+go down one option
+\end_layout
+
+\end_inset
+</cell>
+</row>
+<row>
+<cell alignment="center" valignment="top" usebox="none">
+\begin_inset Text
+
+\begin_layout Plain Layout
+\begin_inset Formula $\Uparrow$
+\end_inset
+
+
+\end_layout
+
+\end_inset
+</cell>
+<cell alignment="left" valignment="top" usebox="none">
+\begin_inset Text
+
+\begin_layout Plain Layout
+go up one options
+\end_layout
+
+\end_inset
+</cell>
+</row>
+<row>
+<cell alignment="center" valignment="top" usebox="none">
+\begin_inset Text
+
+\begin_layout Plain Layout
+\begin_inset Formula $\Rightarrow$
+\end_inset
+
+
+\end_layout
+
+\end_inset
+</cell>
+<cell alignment="center" valignment="top" usebox="none">
+\begin_inset Text
+
+\begin_layout Plain Layout
+increase the selected setting
+\end_layout
+
+\end_inset
+</cell>
+</row>
+<row>
+<cell alignment="center" valignment="top" usebox="none">
+\begin_inset Text
+
+\begin_layout Plain Layout
+\begin_inset Formula $\Leftarrow$
+\end_inset
+
+
+\end_layout
+
+\end_inset
+</cell>
+<cell alignment="center" valignment="top" usebox="none">
+\begin_inset Text
+
+\begin_layout Plain Layout
+decrease the selected setting
+\end_layout
+
+\end_inset
+</cell>
+</row>
+<row>
+<cell alignment="center" valignment="top" usebox="none">
+\begin_inset Text
+
+\begin_layout Plain Layout
+Enter
+\end_layout
+
+\end_inset
+</cell>
+<cell alignment="left" valignment="top" usebox="none">
+\begin_inset Text
+
+\begin_layout Plain Layout
+perform the indicated action
+\end_layout
+
+\end_inset
+</cell>
+</row>
+</lyxtabular>
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Chapter
+Technical Manual
+\end_layout
+
+\begin_layout Section*
+Issues
+\end_layout
+
+\begin_layout Standard
+The single most difficult part was getting the mazes to randomly generate.
+ Due to a difficult to find bug in the maze adjustment code, caused by confusion
+ between coordinate systems, incoherent mazes kept getting generated.
+ After this, placing the wall according to the maze also had its difficulty,
+ due to the number of scenarios needed to handle making corners.
+ Finally, tessellating the tops of the walls had a tricky bug, as I did
+ not realize that the tessellator could select which mode of drawing (e.g.
+ triangles or quads) it would use.
+\end_layout
+
+\begin_layout Section*
+Known Problems
+\end_layout
+
+\begin_layout Standard
+After the ball falls through the board, you can see the ball underneath
+ the board.
+ This is intended.
+ However, when you tilt the board the ball moves with the board, even though
+ this is not physically possible.
+\end_layout
+
+\begin_layout Standard
+At sufficient speeds, the ball may go into the center of a hole, fall through
+ the board, then come out of the hole.
+ This isn't a terrible problem, as balls skipping over holes at sufficient
+ speeds seems intuitive, though the ball should not be able to go below
+ the board and back up again.
+\end_layout
+
+\begin_layout Standard
+When resuming a game after you have won or lost, the board and ball may
+ move for a single frame.
+\end_layout
+
+\begin_layout Standard
+The exact height of the ball near the edges of a hole are unphysical.
+ The ball effectively ends up being positioned as if the hole has a funnel
+ in it.
+ However, the physically correct solution has problems due to floating point
+ errors.
+ Note that this does not apply to the physics in such areas, which are physicall
+y rigorous.
+\end_layout
+
+\begin_layout Section*
+Reflections
+\end_layout
+
+\begin_layout Standard
+Though the resulting program is satisfactory, the code's structure leaves
+ much to be desired.
+ There is only a single class in the entire project, and that class (the
+ Maze) does not actually handle game logic; it only exists to make maze
+ generation easier.
+ All state is stored in a haphazard collection of global variables.
+ Optimally, this would all be stored in a global state class, which would
+ also act to organize the workings of the program in a more hierarchical
+ manner.
+\end_layout
+
+\begin_layout Standard
+I am also unhappy with the menus.
+ The font is too small.
+ Furthermore, I'd rather not use a serif font for the menus.
+ The lack of anti-aliasing on the menus makes them a bit of an eyesore.
+ The layout also leaves a bit to be desired; preferably, all settings would
+ be equally justified, with the numeric settings all aligned on the decimal
+ point.
+ Adding a bit of graphics to the menus would also be nice.
+ However, none of this was done due to time constraints, in combination
+ with a lack of knowledge of textures.
+\end_layout
+
+\end_body
+\end_document
