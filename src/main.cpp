@@ -195,7 +195,7 @@ void glutPrint(float x, float y, void* font, const char* text, float r, float g,
     glColor4f(r,g,b,a);
     int width = glutBitmapLength(font, (unsigned char*) text);
     //printf("%d\n", width);
-    glRasterPos2f(x-width/480.0/2.0,y);
+    glRasterPos2f(x-float(width)/float(w),y);
     while (*text) {
         glutBitmapCharacter(font, *text);
         text++;
@@ -261,7 +261,7 @@ void render()
         break;
     case MENU:
         glUseProgram(0);
-        glutPrint(0.0f, 0.3f, GLUT_BITMAP_TIMES_ROMAN_24, "Start",
+        glutPrint(0.0f, 0.3f, GLUT_BITMAP_TIMES_ROMAN_24, "Resume",
                 1.0f, 1.0f, menuItem == 0 ? 0.0f : 1.0f, 0.5f);
         glutPrint(0.0f, 0.1f, GLUT_BITMAP_TIMES_ROMAN_24, "Restart",
                 1.0f, 1.0f, menuItem == 1 ? 0.0f : 1.0f, 0.5f);
