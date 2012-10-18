@@ -403,8 +403,8 @@ void updateRunning(float dt)
 
     ballX = phys::ball->GetWorldCenter().x;
     // Balls fall in holes
-    if (inHole) {
-        if (dist < holeRadius - ballRadius) {
+    if (inHole || state == PRELOSE) {
+        if (dist < holeRadius - ballRadius || state == PRELOSE ) {
             // Euler integration is fine here
             // This equation should give the right velocity for falling
             ballY -= g * sqrtf(-2.0f/g*(ballY+0.5))*dt;
@@ -413,8 +413,8 @@ void updateRunning(float dt)
                 state = LOSE;
             }
         } else {
-            ballY = -0.5 - sqrt(1.0+pow(double(dist-holeRadius)/ballRadius,2) )*ballRadius;
-            printf("%f\n", holeRadius-dist);
+            ballY =
+               -sqrt(1.0+pow(double(dist-holeRadius)/ballRadius,2) )*ballRadius;
         }
     } else {
         ballY = -0.5;
