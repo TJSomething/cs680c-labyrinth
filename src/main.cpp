@@ -130,7 +130,7 @@ bool specialKeys[256];
 bool keys[256];
 int mouseX = 0, mouseY = 0;
 float keyboardSensitivity = 200.0f;
-float mouseSensitivity = 0.5f;
+float mouseSensitivity = 200.0f;
 
 // Utility functions
 std::vector<Vertex> makeSphere(glm::vec3 center, GLfloat rad,
