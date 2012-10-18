@@ -50,6 +50,7 @@ namespace mats {
 	glm::mat4 mvp[2];//premultiplied modelviewprojections
 }
 
+#define HOLE_COLOR {0.69, 0.56, 0.41}
 #define FLOOR_COLOR {0.86, 0.70, 0.49}
 #define TOP_COLOR {0.93, 0.79, 0.62}
 
@@ -103,6 +104,7 @@ namespace MazeParams {
     const float cellHSize = (right - left) / size;
     const float cellVSize = (top - bottom) / size;
     const float wallThickness = 0.2f;
+    const float holeDepth = 0.3f;
 }
 
 const int holeCount = 5;
@@ -142,7 +144,15 @@ void addPanel(std::vector<Vertex>& geometry, int x, int y, GLfloat r, GLfloat g,
         GLfloat b);
 void addWallTops(std::vector<Vertex>& geometry, const std::vector<b2Vec2>&
         wallCorners);
+void addFloor(std::vector<Vertex>& geometry, const std::set<int>&
+                holeLocs);
 void changeAngle(float x, float y);
+
+// Something for physics
+class NullContactFilter : public b2ContactFilter {
+    bool shouldNotCollide(b2Fixture* fixtureA, b2Fixture* fixtureB);
+};
+NullContactFilter nullFilter;
 
 //--Main
 int main(int argc, char **argv)
@@ -252,6 +262,7 @@ void render()
     glDisableVertexAttribArray(loc_color);
 
     switch (state) {
+    case PRELOSE:
     case LOSE:
         glUseProgram(0);
         glutPrint(0.0f, 0.0f, GLUT_BITMAP_TIMES_ROMAN_24, "You lose!", 1.0f, 1.0f, 1.0f, 0.5f);
@@ -333,15 +344,18 @@ void updateRunning(float dt)
     // Check if the ball is in a hole
     bool inHole = false;
     b2Vec2 holeLoc;
+    float dist;
     for (auto hole : holes) {
         if ( (hole - phys::ball->GetWorldCenter()).Length() < holeRadius ) {
             inHole = true;
             holeLoc = hole;
+            dist = (holeLoc - phys::ball->GetWorldCenter()).Length();
             break;
         }
     }
+
     // Check if we have a winner
-    {
+    if (! (state == PRELOSE )) {
         using namespace MazeParams;
         auto ballPt = phys::ball->GetWorldCenter();
         if (ballPt.x > left + cellHSize*(endX) + wallThickness &&
@@ -353,18 +367,21 @@ void updateRunning(float dt)
 
     // Apply force to the ball
     glm::vec3 normal;
-    if (!inHole && state != PRELOSE)
+    if (!inHole)
         normal = glm::vec3(mats::board[0][1],
                            mats::board[1][1],
                            mats::board[2][1]);
     else {
-        float dist = (holeLoc - phys::ball->GetWorldCenter()).Length();
         // If the ball is entirely in the hole
-        if (dist < holeRadius - ballRadius || state == PRELOSE) {
+        if (dist < holeRadius - ballRadius) {
             // We've already lost
             state = PRELOSE;
-            b2Vec2 centerToBall = .2*(phys::ball->GetWorldCenter() - holeLoc);
-            normal = glm::vec3(centerToBall.x,1,centerToBall.y);
+            normal = glm::vec3(0,1,0);
+            // Disable wall collisions
+            b2Filter noCollisions;
+            noCollisions.maskBits = 0x0000;
+            for (auto f = phys::walls->GetFixtureList(); f; f = f->GetNext())
+                f->SetFilterData(noCollisions);
         } else {
             b2Vec2 centerToEdge = phys::ball->GetWorldCenter() - holeLoc;
             centerToEdge.Normalize();
@@ -387,10 +404,28 @@ void updateRunning(float dt)
     b2Vec2 force = b2Vec2(perpForce.z, -perpForce.x);
     phys::ball->ApplyForce(force, phys::ball->GetWorldCenter());
 
-    // Fake a friction force caused by being in the hole
-    float dist = (holeLoc - phys::ball->GetWorldCenter()).Length();
-    if (inHole && dist < holeRadius - ballRadius) {
-        phys::ball->ApplyForceToCenter(-0.2*phys::ball->GetLinearVelocity());
+    // Bounce off of hole walls
+    //printf("%f,%f\n", holeLoc.x, holeLoc.y);
+    if (state == PRELOSE &&
+            inHole &&
+            // Penetrating hole edge
+            dist > holeRadius - ballRadius &&
+            // Bounding cylinder above hole rim
+            ballY > -1 - MazeParams::holeDepth - ballRadius &&
+            // Ball pentrating
+            //powf(holeRadius-dist,2) + powf(-1-MazeParams::holeDepth-ballY,2) < ballRadius*ballRadius
+            // Ball going out of hole
+            b2Dot(phys::ball->GetLinearVelocity(), holeLoc - phys::ball->GetWorldCenter()) < 0
+            ) {
+        //phys::ball->ApplyForceToCenter(-0.2*phys::ball->GetLinearVelocity());
+        // Don't ask where 1.57 comes from; it was experimentally found to not
+        // make the ball bounce like crazy.
+        phys::ball->ApplyLinearImpulse(
+                -1.555*b2Dot(phys::ball->GetLinearVelocity(), holeLoc - phys::ball->GetWorldCenter())*
+                pow(dist,-2.0)*
+                (holeLoc - phys::ball->GetWorldCenter()),
+                phys::ball->GetWorldCenter());
+
     }
 
     // Work the physics
@@ -404,10 +439,10 @@ void updateRunning(float dt)
     ballX = phys::ball->GetWorldCenter().x;
     // Balls fall in holes
     if (inHole || state == PRELOSE) {
-        if (dist < holeRadius - ballRadius || state == PRELOSE ) {
+        if (state == PRELOSE || dist < holeRadius - ballRadius ) {
             // Euler integration is fine here
             // This equation should give the right velocity for falling
-            ballY -= g * sqrtf(-2.0f/g*(ballY+0.5))*dt;
+            ballY -= g * sqrtf(-2.0f/g*(ballY+ballRadius))*dt;
             // If the ball has fallen enough, you lose
             if (ballY < -75.0f) {
                 state = LOSE;
@@ -417,7 +452,7 @@ void updateRunning(float dt)
                -sqrt(1.0+pow(double(dist-holeRadius)/ballRadius,2) )*ballRadius;
         }
     } else {
-        ballY = -0.5;
+        ballY = -1 + ballRadius;
     }
     ballZ = phys::ball->GetWorldCenter().y;
     //std::cout << ballX << ", " << ballZ << std::endl;
@@ -463,12 +498,16 @@ void updateMenu(float dt) {
         specialKeys[GLUT_KEY_DOWN] = false;
         if (menuItem < 3)
             menuItem++;
+        else
+            menuItem = 0;
         //printf("i:%d\n", menuItem);
     }
     if (specialKeys[GLUT_KEY_UP]) {
         specialKeys[GLUT_KEY_UP] = false;
         if (menuItem != 0)
             menuItem--;
+        else
+            menuItem = 3;
     }
 }
 
@@ -508,12 +547,16 @@ void updateSettings(float dt) {
         specialKeys[GLUT_KEY_DOWN] = false;
         if (menuItem < 2)
             menuItem++;
+        else
+            menuItem = 0;
         //printf("i:%d\n", menuItem);
     }
     if (specialKeys[GLUT_KEY_UP]) {
         specialKeys[GLUT_KEY_UP] = false;
         if (menuItem != 0)
             menuItem--;
+        else
+            menuItem = 2;
     }
 }
 
@@ -665,14 +708,8 @@ bool initialize()
                           {{-10.0, 1.0, 10.0}, {0.93, 0.79, 0.62}},
                           {{10.0, -1.0, 10.0}, {0.86, 0.70, 0.49}}
                         }*/
-    // Add the floor
-    geometry.push_back(Vertex{{MazeParams::left, -1.0f, MazeParams::bottom}, FLOOR_COLOR});
-    geometry.push_back(Vertex{{MazeParams::right, -1.0f, MazeParams::bottom}, FLOOR_COLOR});
-    geometry.push_back(Vertex{{MazeParams::left, -1.0f, MazeParams::top}, FLOOR_COLOR});
-    geometry.push_back(Vertex{{MazeParams::right, -1.0f, MazeParams::top}, FLOOR_COLOR});
-    geometry.push_back(Vertex{{MazeParams::left, -1.0f, MazeParams::top}, FLOOR_COLOR});
-    geometry.push_back(Vertex{{MazeParams::right, -1.0f, MazeParams::bottom}, FLOOR_COLOR});
-    // And walls
+
+    // Add the walls
     b2BodyDef wallBodyDef;
     phys::walls = phys::world.CreateBody(&wallBodyDef);
     addWalls(geometry, phys::walls, {{MazeParams::right,MazeParams::top},
@@ -812,14 +849,8 @@ bool initialize()
         if (!((x == 0 && y == 0) || (x == endX && y == endY)))
            holeLocs.insert(place);
     }
-    for (auto holeLoc : holeLocs) {
-        using namespace MazeParams;
-        float x = left + cellHSize*(holeLoc/size+0.5f);
-        float y = bottom + cellVSize*(holeLoc%size+0.5f);
-        holes.push_back({x,y});
-        addHole(geometry,{x,y});
-        //printf("%f,%f\n", x, y);
-    }
+    // Put the holes in the floor
+    addFloor(geometry, holeLocs);
 
     vertexCounts[0] = geometry.size();
 
@@ -1111,20 +1142,6 @@ void addWalls(std::vector<Vertex>& geometry, b2Body* board,
     phys::walls->CreateFixture(&wallShape, 0.0f);
 }
 
-void addHole(std::vector<Vertex>& geometry, b2Vec2 loc) {
-    for (float angle = 0.0f; angle < M_PI*2; angle += M_PI/60.0f) {
-        geometry.push_back(
-                {{loc.x, -0.95f, loc.y},
-                 {0.0f,0.0f,0.0f}});
-        geometry.push_back(
-                {{loc.x+holeRadius*cosf(angle), -0.95f, loc.y+holeRadius*sinf(angle)},
-                 {0.0f,0.0f,0.0f}});
-        geometry.push_back(
-                {{loc.x+holeRadius*cosf(angle+M_PI/60.0f), -0.95f, loc.y+holeRadius*sinf(angle+M_PI/60.0f)},
-                 {0.0f,0.0f,0.0f}});
-    }
-}
-
 void addPanel(std::vector<Vertex>& geometry, int x, int y, GLfloat r, GLfloat g,
         GLfloat b) {
     using namespace MazeParams;
@@ -1163,6 +1180,8 @@ void CALLBACK combineCallback(GLdouble coords[3],
    vertex->position[2] = coords[2];
    for (i = 0; i < 3; i++)
       vertex->color[i] = vertex_data[0]->color[i];
+   if (*dataOut != nullptr)
+       delete *dataOut;
    *dataOut = vertex;
 }
 
@@ -1172,6 +1191,8 @@ void CALLBACK edgeCallback(){return;}
 void addWallTops(std::vector<Vertex>& geometry, const std::vector<b2Vec2>&
         wallCorners) {
     using namespace MazeParams;
+    std::vector<std::unique_ptr<Vertex>> innerVertices;
+    std::vector<std::unique_ptr<double[]>> innerCoords;
 
     wallTopVertices.clear();
 
@@ -1192,22 +1213,25 @@ void addWallTops(std::vector<Vertex>& geometry, const std::vector<b2Vec2>&
         {right, 0.0, bottom},
         {left, 0.0, bottom}};
     for (auto coords : outsideCoords) {
-        Vertex *vertex = new Vertex{{float(coords[0]), float(coords[1]), float(coords[2])},
-                         TOP_COLOR};
-        gluTessVertex(tess, coords.data(), vertex);
+        innerVertices.emplace_back(new Vertex{{float(coords[0]), float(coords[1]), float(coords[2])},
+                         TOP_COLOR});
+        gluTessVertex(tess, coords.data(), innerVertices.back().get());
     }
     gluTessEndContour(tess);
 
     // Add the inner walls
     gluTessBeginContour(tess);
     for (auto corner : wallCorners) {
-        double *coords = new double[3];
-        coords[0] = corner.x;
-        coords[1] = 0;
-        coords[2] = corner.y;
-        Vertex *vertex = new Vertex{{float(coords[0]), float(coords[1]), float(coords[2])},
-                         TOP_COLOR};
-        gluTessVertex(tess, coords, vertex);
+        innerCoords.emplace_back(new double[3]);
+        innerCoords.back()[0] = corner.x;
+        innerCoords.back()[1] = 0;
+        innerCoords.back()[2] = corner.y;
+        innerVertices.emplace_back(
+                new Vertex{{float(innerCoords.back()[0]),
+                    float(innerCoords.back()[1]),
+                    float(innerCoords.back()[2])},
+                         TOP_COLOR});
+        gluTessVertex(tess, innerCoords.back().get(), innerVertices.back().get());
     }
     gluTessEndContour(tess);
 
@@ -1217,4 +1241,110 @@ void addWallTops(std::vector<Vertex>& geometry, const std::vector<b2Vec2>&
     // Shove the new vertices into the geometry
     geometry.insert(geometry.end(), wallTopVertices.begin(),
             wallTopVertices.end());
+}
+
+std::vector<Vertex> floorVertices;
+void CALLBACK addFloorVertex(GLvoid *vertex) {
+    Vertex v = *(Vertex*) vertex;
+    floorVertices.push_back(v);
+}
+
+void addFloor(std::vector<Vertex>& geometry, const std::set<int>&
+        holeLocs) {
+    using namespace MazeParams;
+    std::vector<std::unique_ptr<std::vector<GLdouble>>> innerPoints;
+    std::vector<std::unique_ptr<Vertex>> innerVertices;
+
+    // Run the tesselator
+    auto tess = gluNewTess();
+    gluTessCallback(tess, GLU_TESS_VERTEX, (GLvoid (*) ()) addFloorVertex);
+    gluTessCallback(tess, GLU_TESS_COMBINE, (GLvoid (*) ()) combineCallback);
+    gluTessCallback(tess, GLU_TESS_EDGE_FLAG_DATA,
+            (GLvoid (*) ()) edgeCallback);
+    gluTessProperty(tess, GLU_TESS_WINDING_RULE, GLU_TESS_WINDING_NONZERO);
+
+    gluTessBeginPolygon(tess, nullptr);
+
+    // Add the floor
+    gluTessBeginContour(tess);
+    std::vector<std::vector<double>> outsideCoords{{left, -1.0, top},
+        {right, -1.0, top},
+        {right, -1.0, bottom},
+        {left, -1.0, bottom}};
+    for (auto coords : outsideCoords) {
+        innerVertices.push_back(
+                std::unique_ptr<Vertex>(
+                        new Vertex{{float(coords[0]),
+                                    float(coords[1]),
+                                    float(coords[2])},
+                                   FLOOR_COLOR}));
+        gluTessVertex(tess, coords.data(), innerVertices.back().get());
+    }
+    gluTessEndContour(tess);
+
+    // Punch out the holes
+    for (auto holeLoc : holeLocs) {
+        float centerX = left + cellHSize*(holeLoc/size+0.5f);
+        float centerY = bottom + cellVSize*(holeLoc%size+0.5f);
+        holes.emplace_back(centerX, centerY);
+
+        gluTessBeginContour(tess);
+        for (float angle = 0.0f; angle < M_PI*2; angle += M_PI/60.0f) {
+            geometry.push_back(Vertex{{centerX+holeRadius*cosf(angle),
+                                        -1.0,
+                                        centerY+holeRadius*sinf(angle)},
+                                       HOLE_COLOR});
+            geometry.push_back(Vertex{{centerX+holeRadius*cosf(angle+M_PI/60.0f),
+                                        -1.0,
+                                        centerY+holeRadius*sinf(angle+M_PI/60.0f)},
+                                       HOLE_COLOR});
+            geometry.push_back(Vertex{{centerX+holeRadius*cosf(angle+M_PI/60.0f),
+                                        -1.0-holeDepth,
+                                        centerY+holeRadius*sinf(angle+M_PI/60.0f)},
+                                       HOLE_COLOR});
+            geometry.push_back(Vertex{{centerX+holeRadius*cosf(angle),
+                                        -1.0,
+                                        centerY+holeRadius*sinf(angle)},
+                                       HOLE_COLOR});
+            geometry.push_back(Vertex{{centerX+holeRadius*cosf(angle+M_PI/60.0f),
+                                        -1.0-holeDepth,
+                                        centerY+holeRadius*sinf(angle+M_PI/60.0f)},
+                                       HOLE_COLOR});
+            geometry.push_back(Vertex{{centerX+holeRadius*cosf(angle),
+                                        -1.0-holeDepth,
+                                        centerY+holeRadius*sinf(angle)},
+                                       HOLE_COLOR});
+
+            // Add tesselation vertex
+            innerPoints.push_back(
+                    std::unique_ptr<std::vector<GLdouble>>(
+                            new std::vector<GLdouble>
+                                      {centerX+holeRadius*cos(angle),
+                                       -1.0,
+                                       centerY+holeRadius*sin(angle)}));
+            innerVertices.push_back(
+                    std::unique_ptr<Vertex>(
+                            new Vertex{{float((*innerPoints.back())[0]),
+                                        float((*innerPoints.back())[1]),
+                                        float((*innerPoints.back())[2])},
+                                       FLOOR_COLOR}));
+
+            //printf("%f,%f\n", x, y);
+            gluTessVertex(tess, innerPoints.back().get()->data(), innerVertices.back().get());
+        }
+        gluTessEndContour(tess);
+    }
+
+    gluTessEndPolygon(tess);
+    gluDeleteTess(tess);
+
+    // Shove the new vertices into the geometry
+    geometry.insert(geometry.end(), floorVertices.begin(),
+            floorVertices.end());
+    floorVertices.clear();
+}
+
+bool NullContactFilter::shouldNotCollide(b2Fixture* fixtureA, b2Fixture* fixtureB) {
+    printf("Yo!");
+    return false;
 }
