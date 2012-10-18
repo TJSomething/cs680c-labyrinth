@@ -119,7 +119,8 @@ enum States {
     WIN,
     LOSE,
     MENU,
-    SETTINGS
+    SETTINGS,
+    PRELOSE
 };
 States state;
 int menuItem = 0;
@@ -301,19 +302,24 @@ void updateRunning(float dt)
         menuItem = 0;
         keys[27] = false;
     }
-    if (specialKeys[GLUT_KEY_UP]) {
-        changeAngle(0, keyboardSensitivity*dt);
+    // If the ball is below the board, stop moving
+    if (state == RUNNING) {
+        if (specialKeys[GLUT_KEY_UP]) {
+            changeAngle(0, keyboardSensitivity*dt);
+        }
+        if (specialKeys[GLUT_KEY_DOWN]) {
+            changeAngle(0, -keyboardSensitivity*dt);
+        }
+        if (specialKeys[GLUT_KEY_LEFT]) {
+            changeAngle(keyboardSensitivity*dt, 0);
+        }
+        if (specialKeys[GLUT_KEY_RIGHT]) {
+            changeAngle(-keyboardSensitivity*dt, 0);
+        }
+        changeAngle(mouseX*mouseSensitivity*dt, mouseY*mouseSensitivity*dt);
+    } else {
+        changeAngle(50.0*angleZ*dt, -50.0*angleX*dt);
     }
-    if (specialKeys[GLUT_KEY_DOWN]) {
-        changeAngle(0, -keyboardSensitivity*dt);
-    }
-    if (specialKeys[GLUT_KEY_LEFT]) {
-        changeAngle(keyboardSensitivity*dt, 0);
-    }
-    if (specialKeys[GLUT_KEY_RIGHT]) {
-        changeAngle(-keyboardSensitivity*dt, 0);
-    }
-    changeAngle(mouseX*mouseSensitivity, mouseY*mouseSensitivity);
     mouseX = 0;
     mouseY = 0;
 
@@ -347,14 +353,16 @@ void updateRunning(float dt)
 
     // Apply force to the ball
     glm::vec3 normal;
-    if (!inHole)
+    if (!inHole && state != PRELOSE)
         normal = glm::vec3(mats::board[0][1],
                            mats::board[1][1],
                            mats::board[2][1]);
     else {
         float dist = (holeLoc - phys::ball->GetWorldCenter()).Length();
         // If the ball is entirely in the hole
-        if (dist < holeRadius - ballRadius) {
+        if (dist < holeRadius - ballRadius || state == PRELOSE) {
+            // We've already lost
+            state = PRELOSE;
             b2Vec2 centerToBall = .2*(phys::ball->GetWorldCenter() - holeLoc);
             normal = glm::vec3(centerToBall.x,1,centerToBall.y);
         } else {
@@ -405,7 +413,8 @@ void updateRunning(float dt)
                 state = LOSE;
             }
         } else {
-            ballY = -0.5 - (holeRadius-dist);
+            ballY = -0.5 - sqrt(1.0+pow(double(dist-holeRadius)/ballRadius,2) )*ballRadius;
+            printf("%f\n", holeRadius-dist);
         }
     } else {
         ballY = -0.5;
@@ -508,14 +517,17 @@ void updateSettings(float dt) {
     }
 }
 
+
 void update() {
     float dt = getDT();// if you have anything moving, use dt.
 
     switch(state) {
     case RUNNING:
+    case PRELOSE:
         updateRunning(dt);
         break;
     case LOSE:
+    case WIN:
         updateLose(dt);
         break;
     case MENU:
@@ -523,9 +535,6 @@ void update() {
         break;
     case SETTINGS:
         updateSettings(dt);
-        break;
-    case WIN:
-        updateLose(dt);
         break;
     }
     glutPostRedisplay();
