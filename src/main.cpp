@@ -124,7 +124,7 @@ enum States {
     SETTINGS,
     PRELOSE
 };
-States state;
+States state, lastState;
 int menuItem = 0;
 
 // Controls
@@ -309,6 +309,7 @@ void updateRunning(float dt)
 
     // Check the controls
     if (keys[27]) {
+        lastState = state;
         state = MENU;
         menuItem = 0;
         keys[27] = false;
@@ -330,6 +331,10 @@ void updateRunning(float dt)
         changeAngle(mouseX*mouseSensitivity*dt, mouseY*mouseSensitivity*dt);
     } else {
         changeAngle(50.0*angleZ*dt, -50.0*angleX*dt);
+
+        // Allow restart
+        if (keys['\r'])
+            state = LOSE;
     }
     mouseX = 0;
     mouseY = 0;
@@ -461,6 +466,7 @@ void updateRunning(float dt)
 
 void updateLose(float dt) {
     if (keys[27]) {
+        lastState = state;
         state = MENU;
         menuItem = 0;
         keys[27] = false;
@@ -478,7 +484,7 @@ void updateMenu(float dt) {
         keys['\r'] = false;
         switch (menuItem) {
         case 0:
-            state = RUNNING;
+            state = lastState;
             break;
         case 1:
             cleanUp();
@@ -516,6 +522,7 @@ void updateSettings(float dt) {
         keys['\r'] = false;
         switch (menuItem) {
         case 2:
+            lastState = state;
             state = MENU;
             menuItem = 2;
             return;
