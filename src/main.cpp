@@ -146,12 +146,6 @@ void addFloor(std::vector<Vertex>& geometry, const std::set<int>&
                 holeLocs);
 void changeAngle(float x, float y);
 
-// Something for physics
-class NullContactFilter : public b2ContactFilter {
-    bool shouldNotCollide(b2Fixture* fixtureA, b2Fixture* fixtureB);
-};
-NullContactFilter nullFilter;
-
 //--Main
 int main(int argc, char **argv)
 {
@@ -1343,7 +1337,3 @@ void addFloor(std::vector<Vertex>& geometry, const std::set<int>&
     floorVertices.clear();
 }
 
-bool NullContactFilter::shouldNotCollide(b2Fixture* fixtureA, b2Fixture* fixtureB) {
-    printf("Yo!");
-    return false;
-}
