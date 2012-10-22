@@ -296,9 +296,6 @@ void render()
 
 void updateRunning(float dt)
 {
-    //total time
-    static float remainder = 0.0f;
-
     // Check the controls
     if (keys[27]) {
         lastState = state;
