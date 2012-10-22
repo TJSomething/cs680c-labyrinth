@@ -130,7 +130,7 @@ bool specialKeys[256];
 bool keys[256];
 int mouseX = 0, mouseY = 0;
 float keyboardSensitivity = 200.0f;
-float mouseSensitivity = 300.0f;
+float mouseSensitivity = 0.5f;
 
 // Utility functions
 std::vector<Vertex> makeSphere(glm::vec3 center, GLfloat rad,
@@ -326,7 +326,7 @@ void updateRunning(float dt)
         if (specialKeys[GLUT_KEY_RIGHT]) {
             changeAngle(-keyboardSensitivity*dt, 0);
         }
-        changeAngle(mouseX*mouseSensitivity*dt, mouseY*mouseSensitivity*dt);
+        changeAngle(mouseX*mouseSensitivity, mouseY*mouseSensitivity);
     } else {
         changeAngle(50.0*angleZ*dt, -50.0*angleX*dt);
 
