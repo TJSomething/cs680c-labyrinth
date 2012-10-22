@@ -90,9 +90,7 @@ namespace phys {
     b2Body* walls;
 }
 
-const float g = 9.8;
-const int frequency = 120;
-const float timeStep = 1/float(frequency);
+const float g = 50;
 
 // Maze parameters
 namespace MazeParams {
@@ -132,7 +130,7 @@ bool specialKeys[256];
 bool keys[256];
 int mouseX = 0, mouseY = 0;
 float keyboardSensitivity = 200.0f;
-float mouseSensitivity = 200.0f;
+float mouseSensitivity = 300.0f;
 
 // Utility functions
 std::vector<Vertex> makeSphere(glm::vec3 center, GLfloat rad,
@@ -433,13 +431,8 @@ void updateRunning(float dt)
 
     }
 
-    // Work the physics
-    // Calculate the number of timesteps that have elapsed
-    remainder += dt;
-    while (remainder > timeStep) {
-        phys::world.Step(timeStep, 8, 3);
-        remainder -= timeStep;
-    }
+    // Work the 2D physics
+    phys::world.Step(dt, 8, 3);
 
     ballX = phys::ball->GetWorldCenter().x;
     // Balls fall in holes
