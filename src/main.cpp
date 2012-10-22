@@ -515,7 +515,6 @@ void updateSettings(float dt) {
         keys['\r'] = false;
         switch (menuItem) {
         case 2:
-            lastState = state;
             state = MENU;
             menuItem = 2;
             return;
