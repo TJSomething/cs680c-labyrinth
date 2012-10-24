@@ -17,6 +17,10 @@
 
 #include <Box2D/Box2D.h>
 
+#include <assimp/Importer.hpp>
+
+#include <stb_image.h>
+
 #include "maze.h"
 
 //--Data types
@@ -25,6 +29,7 @@ struct Vertex
 {
     GLfloat position[3];
     GLfloat color[3];
+    GLfloat texcoord[2];
 };
 
 //--Evil Global variables
