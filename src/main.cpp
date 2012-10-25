@@ -21,7 +21,16 @@
 
 #include <stb_image.h>
 
+#include <boost/filesystem/convenience.hpp>
+#include <boost/gil/gil_all.hpp>
+#include <boost/gil/extension/io/png_io.hpp>
+
 #include "maze.h"
+#include "read_file.h"
+#include "make_unique.hpp"
+
+namespace fs = boost::filesystem;
+namespace gil = boost::gil;
 
 //--Data types
 //This object will define the attributes of a vertex(position, color, etc...)
@@ -29,11 +38,11 @@ struct Vertex
 {
     GLfloat position[3];
     GLfloat color[3];
-    GLfloat texcoord[2];
+    GLfloat tex_coord[2];
+    GLfloat tex_opacity;
 };
 
 //--Evil Global variables
-//TODO: Not have these anymore
 int w = 640, h = 480;// Window size
 GLuint program;// The GLSL program handle
 GLuint vbo_geometry[2];// VBO handle for our geometry
@@ -45,6 +54,25 @@ GLint loc_mvpmat;// Location of the modelviewprojection matrix in the shader
 //attribute locations
 GLint loc_position;
 GLint loc_color;
+GLint loc_tex_coord;
+GLint loc_tex_opacity;
+GLint loc_texmap;
+
+// Texture stuff
+std::vector<gil::rgba8_image_t> textures;
+std::vector<GLuint> textureNames;
+
+// These will be used to map 3D coords to uv for the wood.
+glm::vec3 wood_tex_bases[2];
+
+enum Material {
+    TOP_WOOD,
+    FLOOR_WOOD,
+    HOLE_WOOD,
+    BALL,
+    START_PANEL,
+    END_PANEL
+};
 
 //transform matrices
 namespace mats {
@@ -55,9 +83,12 @@ namespace mats {
 	glm::mat4 mvp[2];//premultiplied modelviewprojections
 }
 
-#define HOLE_COLOR {0.69, 0.56, 0.41}
-#define FLOOR_COLOR {0.86, 0.70, 0.49}
+#define HOLE_COLOR {0.14, 0.11, 0.12}
+#define FLOOR_COLOR {0.69, 0.56, 0.39}
 #define TOP_COLOR {0.93, 0.79, 0.62}
+#define BALL_COLOR {0.00, 0.00, 0.8}
+#define START_COLOR {0.00, 1.0, 0.0}
+#define END_COLOR {1.00, 0.00, 0.0}
 
 //--GLUT Callbacks
 void render();
@@ -142,14 +173,13 @@ std::vector<Vertex> makeSphere(glm::vec3 center, GLfloat rad,
         unsigned int detail, glm::vec3 color);
 void addWalls(std::vector<Vertex>& geometry, b2Body* board,
         std::vector<b2Vec2> pts, bool closeLoop);
-void addHole(std::vector<Vertex>& geometry, b2Vec2 loc);
-void addPanel(std::vector<Vertex>& geometry, int x, int y, GLfloat r, GLfloat g,
-        GLfloat b);
+void addPanel(std::vector<Vertex>& geometry, int x, int y, Material m);
 void addWallTops(std::vector<Vertex>& geometry, const std::vector<b2Vec2>&
         wallCorners);
 void addFloor(std::vector<Vertex>& geometry, const std::set<int>&
                 holeLocs);
 void changeAngle(float x, float y);
+Vertex makeVertex(Material, glm::vec3);
 
 //--Main
 int main(int argc, char **argv)
@@ -181,6 +211,9 @@ int main(int argc, char **argv)
     glutSpecialFunc(specialKey);
     glutSpecialUpFunc(specialKeyUp);
 
+    // To get our textures and shaders, we should be in the executable directory
+    fs::current_path(fs::path(argv[0]).parent_path());
+
     // Initialize all of our resources(shaders, geometry)
     bool init = initialize();
     if(init)
@@ -194,7 +227,8 @@ int main(int argc, char **argv)
     return 0;
 }
 
-void glutPrint(float x, float y, void* font, const char* text, float r, float g, float b, float a)
+void glutPrint(float x, float y, void* font, const char* text, float r, float g,
+        float b, float a)
 {
     if(!text || !strlen(text)) return;
     bool blending = false;
@@ -219,6 +253,7 @@ void render()
     //clear the screen
     glClearColor(0.0, 0.0, 0.2, 1.0);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    glEnable(GL_TEXTURE_2D);
 
     //premultiply the matrix for this example
     mats::mvp[0] = mats::projection * mats::view * mats::board;
@@ -235,7 +270,10 @@ void render()
 
         glEnableVertexAttribArray(loc_position);
         glEnableVertexAttribArray(loc_color);
+        glEnableVertexAttribArray(loc_tex_coord);
+        glEnableVertexAttribArray(loc_tex_opacity);
         glBindBuffer(GL_ARRAY_BUFFER, vbo_geometry[i]);
+        glBindTexture(GL_TEXTURE_2D, textureNames[i]);
         //set pointers into the vbo for each of the attributes(position and color)
         glVertexAttribPointer( loc_position,//location of attribute
                                3,//number of elements
@@ -251,12 +289,30 @@ void render()
                                sizeof(Vertex),
                                (void*)offsetof(Vertex,color));
 
+        glVertexAttribPointer( loc_tex_coord,
+                               2,
+                               GL_FLOAT,
+                               GL_FALSE,
+                               sizeof(Vertex),
+                               (void*)offsetof(Vertex,tex_coord));
+
+        glVertexAttribPointer( loc_tex_opacity,
+                               1,
+                               GL_FLOAT,
+                               GL_FALSE,
+                               sizeof(Vertex),
+                               (void*)offsetof(Vertex,tex_opacity));
+
         glDrawArrays(GL_TRIANGLES, 0, vertexCounts[i]);//mode, starting index, count
     }
 
     //clean up
     glDisableVertexAttribArray(loc_position);
     glDisableVertexAttribArray(loc_color);
+    glDisableVertexAttribArray(loc_tex_coord);
+    glDisableVertexAttribArray(loc_tex_opacity);
+    glBindTexture(GL_TEXTURE_2D, 0);
+
 
     switch (state) {
     case PRELOSE:
@@ -663,46 +719,21 @@ bool initialize()
         key = false;
     }
 
-    std::vector<Vertex> geometry; /*{ {{-10.0, -1.0, -10.0}, {0.86, 0.70, 0.49}},
-                          {{-10.0, -1.0, 10.0}, {0.86, 0.70, 0.49}},
-                          {{-10.0, 1.0, 10.0}, {0.93, 0.79, 0.62}},
+    std::vector<Vertex> geometry;
 
-                          {{10.0, 1.0, -10.0}, {0.93, 0.79, 0.62}},
-                          {{-10.0, -1.0, -10.0}, {0.86, 0.70, 0.49}},
-                          {{-10.0, 1.0, -10.0}, {0.93, 0.79, 0.62}},
-                          
-                          {{10.0, -1.0, 10.0}, {0.86, 0.70, 0.49}},
-                          {{-10.0, -1.0, -10.0}, {0.86, 0.70, 0.49}},
-                          {{10.0, -1.0, -10.0}, {0.86, 0.70, 0.49}},
-                          
-                          {{10.0, 1.0, -10.0}, {0.93, 0.79, 0.62}},
-                          {{10.0, -1.0, -10.0}, {0.86, 0.70, 0.49}},
-                          {{-10.0, -1.0, -10.0}, {0.86, 0.70, 0.49}},
+    // For the wood, to make it look like a single block, we need to set
+    // bases for the texture coordinates. We'll do it randomly, but make
+    // them perpendicular.
+    std::mt19937 gen(std::random_device().operator()());
+    std::uniform_real_distribution<float> dist(-1,1);
+    float z = dist(gen)*0.1;
+    float theta = dist(gen)*M_PI;
+    float phi = dist(gen)*20;
 
-                          {{-10.0, -1.0, -10.0}, {0.86, 0.70, 0.49}},
-                          {{-10.0, 1.0, 10.0}, {0.93, 0.79, 0.62}},
-                          {{-10.0, 1.0, -10.0}, {0.93, 0.79, 0.62}},
-
-                          {{10.0, -1.0, 10.0}, {0.86, 0.70, 0.49}},
-                          {{-10.0, -1.0, 10.0}, {0.86, 0.70, 0.49}},
-                          {{-10.0, -1.0, -10.0}, {0.86, 0.70, 0.49}},
-
-                          {{-10.0, 1.0, 10.0}, {0.93, 0.79, 0.62}},
-                          {{-10.0, -1.0, 10.0}, {0.86, 0.70, 0.49}},
-                          {{10.0, -1.0, 10.0}, {0.86, 0.70, 0.49}},
-                          
-                          {{10.0, 1.0, 10.0}, {0.93, 0.79, 0.62}},
-                          {{10.0, -1.0, -10.0}, {0.86, 0.70, 0.49}},
-                          {{10.0, 1.0, -10.0}, {0.93, 0.79, 0.62}},
-
-                          {{10.0, -1.0, -10.0}, {0.86, 0.70, 0.49}},
-                          {{10.0, 1.0, 10.0}, {0.93, 0.79, 0.62}},
-                          {{10.0, -1.0, 10.0}, {0.86, 0.70, 0.49}},
-
-                          {{10.0, 1.0, 10.0}, {0.93, 0.79, 0.62}},
-                          {{-10.0, 1.0, 10.0}, {0.93, 0.79, 0.62}},
-                          {{10.0, -1.0, 10.0}, {0.86, 0.70, 0.49}}
-                        }*/
+    wood_tex_bases[0] = glm::vec3(sqrt(1-z*z)*cos(theta),
+            sqrt(1-z*z)*sin(theta), z);
+    wood_tex_bases[1] = glm::vec3(glm::vec4(glm::rotate(glm::mat4(1), phi, wood_tex_bases[0]) *
+            glm::vec4(glm::cross(wood_tex_bases[0], glm::vec3(0,0,1)), 0)));
 
     // Add the walls
     b2BodyDef wallBodyDef;
@@ -829,11 +860,10 @@ bool initialize()
     // Place the start and finish
     endX = maze.getEndX();
     endY = maze.getEndY();
-    addPanel(geometry, 0, 0, 0, 1, 0);
-    addPanel(geometry, endX, endY, 1, 0, 0);
+    addPanel(geometry, 0, 0, START_PANEL);
+    addPanel(geometry, endX, endY, END_PANEL);
 
     // Make holes
-    std::mt19937 gen(time(0));
     std::uniform_int_distribution<int> holePlaces(0,
             MazeParams::size*MazeParams::size-1);
     std::set<int> holeLocs;
@@ -857,7 +887,10 @@ bool initialize()
     // Create a Vertex Buffer object to store these vertex infos on the GPU
     glGenBuffers(2, vbo_geometry);
     glBindBuffer(GL_ARRAY_BUFFER, vbo_geometry[0]);
-    glBufferData(GL_ARRAY_BUFFER, geometry.size()*sizeof(Vertex), geometry.data(), GL_STATIC_DRAW);
+    glBufferData(GL_ARRAY_BUFFER,
+            geometry.size()*sizeof(Vertex),
+            geometry.data(),
+            GL_STATIC_DRAW);
     glBindBuffer(GL_ARRAY_BUFFER, vbo_geometry[1]);
     glBufferData(GL_ARRAY_BUFFER,
             sizeof(Vertex) * ballModel.size(),
@@ -869,29 +902,17 @@ bool initialize()
     GLuint fragment_shader = glCreateShader(GL_FRAGMENT_SHADER);
 
     //Shader Sources
-    // Put these into files and write a loader in the future
-    // Note the added uniform!
-    const char *vs =
-        "attribute vec3 v_position;"
-        "attribute vec3 v_color;"
-        "varying vec3 color;"
-        "uniform mat4 mvpMatrix;"
-        "void main(void){"
-        "   gl_Position = mvpMatrix * vec4(v_position, 1.0);"
-        "   color = v_color;"
-        "}";
+    std::string vs = read_file("vertex.S");
+    auto vsPtr = vs.c_str();
 
-    const char *fs =
-        "varying vec3 color;"
-        "void main(void){"
-        "   gl_FragColor = vec4(color.rgb, 1.0);"
-        "}";
+    std::string fs = read_file("fragment.S");
+    auto fsPtr = fs.c_str();
 
     //compile the shaders
     GLint shader_status;
 
     // Vertex shader first
-    glShaderSource(vertex_shader, 1, &vs, NULL);
+    glShaderSource(vertex_shader, 1, &vsPtr, NULL);
     glCompileShader(vertex_shader);
     //check the compile status
     glGetShaderiv(vertex_shader, GL_COMPILE_STATUS, &shader_status);
@@ -902,7 +923,7 @@ bool initialize()
     }
 
     // Now the Fragment shader
-    glShaderSource(fragment_shader, 1, &fs, NULL);
+    glShaderSource(fragment_shader, 1, &fsPtr, NULL);
     glCompileShader(fragment_shader);
     //check the compile status
     glGetShaderiv(fragment_shader, GL_COMPILE_STATUS, &shader_status);
@@ -941,7 +962,23 @@ bool initialize()
     if(loc_color == -1)
     {
         std::cerr << "[F] V_COLOR NOT FOUND" << std::endl;
-        return false;
+        //return false;
+    }
+
+    loc_tex_coord = glGetAttribLocation(program,
+                    const_cast<const char*>("v_tex_coord"));
+    if(loc_tex_coord == -1)
+    {
+        std::cerr << "[F] V_TEX_COORD NOT FOUND" << std::endl;
+        //return false;
+    }
+
+    loc_tex_opacity = glGetAttribLocation(program,
+                    const_cast<const char*>("v_tex_opacity"));
+    if(loc_tex_opacity == -1)
+    {
+        std::cerr << "[F] V_TEX_OPACITY NOT FOUND" << std::endl;
+        //return false;
     }
 
     loc_mvpmat = glGetUniformLocation(program,
@@ -951,7 +988,44 @@ bool initialize()
         std::cerr << "[F] MVPMATRIX NOT FOUND" << std::endl;
         return false;
     }
+
+    loc_texmap = glGetUniformLocation(program,
+                    const_cast<const char*>("texMap"));
+    if(loc_texmap == -1)
+    {
+        std::cerr << "[F] TEXMAP NOT FOUND" << std::endl;
+        //return false;
+    }
+    glUniform1i(loc_texmap, 0);
     
+    // Load and bind textures
+    // Load textures
+    textures.emplace_back();
+    gil::png_read_and_convert_image("wood.png", textures.back());
+    textures.emplace_back(1,1);
+    gil::view(textures.back())(0,0) = gil::rgba8_pixel_t(0,0,0,0);
+    // Bind textures
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+
+    for (int i = 0; i < 2; i++) {
+        textureNames.emplace_back();
+        glGenTextures(1, &textureNames.back());
+        glBindTexture(GL_TEXTURE_2D, textureNames.back());
+
+        // At repeat seam, textures are reflected. I just assume this is true
+        // for all textures. It usually looks pretty nice.
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_MIRRORED_REPEAT);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_MIRRORED_REPEAT);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER,
+                GL_LINEAR_MIPMAP_LINEAR);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, textures[i].width(),
+                textures[i].height(), 0, GL_RGBA, GL_UNSIGNED_BYTE,
+                gil::interleaved_view_get_raw_data(gil::view(textures[i])));
+        glGenerateMipmap(GL_TEXTURE_2D);
+    }
+
+
     //--Init the view and projection matrices
     //  if you will be having a moving camera the view matrix will need to more dynamic
     //  ...Like you should update it before you render more dynamic 
@@ -979,16 +1053,6 @@ bool initialize()
     glutSetCursor(GLUT_CURSOR_NONE);
 
     // Setup physics
-    // Walls
-    /*b2BodyDef wallBodyDef;
-    b2ChainShape wallShape;
-    std::vector<b2Vec2> wallVertices
-        {{10.0f,10.0f},
-         {-10.0f,10.0f},
-         {-10.0f,-10.0f},
-         {10.0f,-10.0f}};
-    wallShape.CreateLoop(wallVertices.data(), 4);*/
-
     // Ball
     b2BodyDef ballBodyDef;
     b2CircleShape ballShape;
@@ -1099,8 +1163,7 @@ std::vector<Vertex> makeSphere(glm::vec3 center, GLfloat rad,
     for (auto pt : points) {
         pt += center;
         result.push_back(
-                Vertex{{pt.x, pt.y, pt.z},
-                       {color.x, color.y, color.z}});
+                makeVertex(BALL, glm::vec3{pt.x, pt.y, pt.z}));
     }
     return result;
 }
@@ -1115,18 +1178,12 @@ void addWalls(std::vector<Vertex>& geometry, b2Body* board,
     // Add the walls to the geometry
     for (int i = 0; i < ptCount; i++) {
         int i2 = (i+1)%pts.size();
-        geometry.push_back({{pts[i].x, 0.0f, pts[i].y},
-            TOP_COLOR});
-        geometry.push_back({{pts[i].x, -1.0f, pts[i].y},
-            FLOOR_COLOR});
-        geometry.push_back({{pts[i2].x, 0.0f, pts[i2].y},
-            TOP_COLOR});
-        geometry.push_back({{pts[i].x, -1.0f, pts[i].y},
-            FLOOR_COLOR});
-        geometry.push_back({{pts[i2].x, -1.0f, pts[i2].y},
-            FLOOR_COLOR});
-        geometry.push_back({{pts[i2].x, 0.0f, pts[i2].y},
-            TOP_COLOR});
+        geometry.push_back(makeVertex(TOP_WOOD, glm::vec3{pts[i].x, 0.0f, pts[i].y}));
+        geometry.push_back(makeVertex(FLOOR_WOOD, glm::vec3{pts[i].x, -1.0f, pts[i].y}));
+        geometry.push_back(makeVertex(TOP_WOOD, glm::vec3{pts[i2].x, 0.0f, pts[i2].y}));
+        geometry.push_back(makeVertex(FLOOR_WOOD, glm::vec3{pts[i].x, -1.0f, pts[i].y}));
+        geometry.push_back(makeVertex(FLOOR_WOOD, glm::vec3{pts[i2].x, -1.0f, pts[i2].y}));
+        geometry.push_back(makeVertex(TOP_WOOD, glm::vec3{pts[i2].x, 0.0f, pts[i2].y}));
     }
     // Add the walls to the physics
     b2ChainShape wallShape;
@@ -1137,20 +1194,19 @@ void addWalls(std::vector<Vertex>& geometry, b2Body* board,
     phys::walls->CreateFixture(&wallShape, 0.0f);
 }
 
-void addPanel(std::vector<Vertex>& geometry, int x, int y, GLfloat r, GLfloat g,
-        GLfloat b) {
+void addPanel(std::vector<Vertex>& geometry, int x, int y, Material m) {
     using namespace MazeParams;
     // The p is for panel
     GLfloat pLeft = left + x*cellHSize + wallThickness;
     GLfloat pRight = left + (x+1)*cellHSize - wallThickness;
     GLfloat pBottom = bottom + y*cellVSize + wallThickness;
     GLfloat pTop = bottom + (y+1)*cellVSize - wallThickness;
-    geometry.push_back({{pLeft, -0.95f, pBottom}, {r, g, b}});
-    geometry.push_back({{pRight, -0.95f, pBottom}, {r, g, b}});
-    geometry.push_back({{pLeft, -0.95f, pTop}, {r, g, b}});
-    geometry.push_back({{pRight, -0.95f, pTop}, {r, g, b}});
-    geometry.push_back({{pLeft, -0.95f, pTop}, {r, g, b}});
-    geometry.push_back({{pRight, -0.95f, pBottom}, {r, g, b}});
+    geometry.push_back(makeVertex(m, glm::vec3{pLeft, -0.95f, pBottom}));
+    geometry.push_back(makeVertex(m, glm::vec3{pRight, -0.95f, pBottom}));
+    geometry.push_back(makeVertex(m, glm::vec3{pLeft, -0.95f, pTop}));
+    geometry.push_back(makeVertex(m, glm::vec3{pRight, -0.95f, pTop}));
+    geometry.push_back(makeVertex(m, glm::vec3{pLeft, -0.95f, pTop}));
+    geometry.push_back(makeVertex(m, glm::vec3{pRight, -0.95f, pBottom}));
 }
 
 #ifndef CALLBACK
@@ -1167,14 +1223,30 @@ void CALLBACK combineCallback(GLdouble coords[3],
                      Vertex *vertex_data[4],
                      GLfloat weight[4], Vertex **dataOut )
 {
-   int i;
+   int i,j;
    Vertex *vertex = new Vertex;
 
    vertex->position[0] = coords[0];
    vertex->position[1] = coords[1];
    vertex->position[2] = coords[2];
-   for (i = 0; i < 3; i++)
-      vertex->color[i] = vertex_data[0]->color[i];
+
+   for (j = 0; j < 3; j++)
+       vertex->color[j] = 0;
+   for (j = 0; j < 2; j++)
+       vertex->tex_coord[j] = 0;
+   vertex->tex_opacity = 0;
+
+   for (i = 0; i < 4; i++) {
+       if (weight[i] > 0) {
+           for (j = 0; j < 3; j++) {
+              vertex->color[j] += weight[i] * (vertex_data[i]->color[j]);
+           }
+           for (j = 0; j < 2; j++)
+               vertex->tex_coord[j] += weight[i] * (vertex_data[i]->tex_coord[j]);
+           vertex->tex_opacity += weight[i]*vertex_data[i]->tex_opacity;
+       }
+   }
+
    if (*dataOut != nullptr)
        delete *dataOut;
    *dataOut = vertex;
@@ -1208,8 +1280,7 @@ void addWallTops(std::vector<Vertex>& geometry, const std::vector<b2Vec2>&
         {right, 0.0, bottom},
         {left, 0.0, bottom}};
     for (auto coords : outsideCoords) {
-        innerVertices.emplace_back(new Vertex{{float(coords[0]), float(coords[1]), float(coords[2])},
-                         TOP_COLOR});
+        innerVertices.emplace_back(std::make_unique<Vertex>(makeVertex(TOP_WOOD,glm::vec3{float(coords[0]), float(coords[1]), float(coords[2])})));
         gluTessVertex(tess, coords.data(), innerVertices.back().get());
     }
     gluTessEndContour(tess);
@@ -1222,10 +1293,9 @@ void addWallTops(std::vector<Vertex>& geometry, const std::vector<b2Vec2>&
         innerCoords.back()[1] = 0;
         innerCoords.back()[2] = corner.y;
         innerVertices.emplace_back(
-                new Vertex{{float(innerCoords.back()[0]),
+                std::make_unique<Vertex>(makeVertex(TOP_WOOD, glm::vec3{float(innerCoords.back()[0]),
                     float(innerCoords.back()[1]),
-                    float(innerCoords.back()[2])},
-                         TOP_COLOR});
+                    float(innerCoords.back()[2])})));
         gluTessVertex(tess, innerCoords.back().get(), innerVertices.back().get());
     }
     gluTessEndContour(tess);
@@ -1268,11 +1338,11 @@ void addFloor(std::vector<Vertex>& geometry, const std::set<int>&
         {left, -1.0, bottom}};
     for (auto coords : outsideCoords) {
         innerVertices.push_back(
-                std::unique_ptr<Vertex>(
-                        new Vertex{{float(coords[0]),
-                                    float(coords[1]),
-                                    float(coords[2])},
-                                   FLOOR_COLOR}));
+                std::make_unique<Vertex>(
+                        makeVertex(FLOOR_WOOD,
+                                glm::vec3{float(coords[0]),
+                                 float(coords[1]),
+                                 float(coords[2])})));
         gluTessVertex(tess, coords.data(), innerVertices.back().get());
     }
     gluTessEndContour(tess);
@@ -1285,30 +1355,30 @@ void addFloor(std::vector<Vertex>& geometry, const std::set<int>&
 
         gluTessBeginContour(tess);
         for (float angle = 0.0f; angle < M_PI*2; angle += M_PI/60.0f) {
-            geometry.push_back(Vertex{{centerX+holeRadius*cosf(angle),
+            geometry.push_back(makeVertex(HOLE_WOOD,
+                    glm::vec3{centerX+holeRadius*cosf(angle),
                                         -1.0,
-                                        centerY+holeRadius*sinf(angle)},
-                                       HOLE_COLOR});
-            geometry.push_back(Vertex{{centerX+holeRadius*cosf(angle+M_PI/60.0f),
+                                        centerY+holeRadius*sinf(angle)}));
+            geometry.push_back(makeVertex(HOLE_WOOD,
+                    glm::vec3{centerX+holeRadius*cosf(angle+M_PI/60.0f),
                                         -1.0,
-                                        centerY+holeRadius*sinf(angle+M_PI/60.0f)},
-                                       HOLE_COLOR});
-            geometry.push_back(Vertex{{centerX+holeRadius*cosf(angle+M_PI/60.0f),
+                                        centerY+holeRadius*sinf(angle+M_PI/60.0f)}));
+            geometry.push_back(makeVertex(HOLE_WOOD,
+                    glm::vec3{centerX+holeRadius*cosf(angle+M_PI/60.0f),
                                         -1.0-holeDepth,
-                                        centerY+holeRadius*sinf(angle+M_PI/60.0f)},
-                                       HOLE_COLOR});
-            geometry.push_back(Vertex{{centerX+holeRadius*cosf(angle),
+                                        centerY+holeRadius*sinf(angle+M_PI/60.0f)}));
+            geometry.push_back(makeVertex(HOLE_WOOD,
+                    glm::vec3{centerX+holeRadius*cosf(angle),
                                         -1.0,
-                                        centerY+holeRadius*sinf(angle)},
-                                       HOLE_COLOR});
-            geometry.push_back(Vertex{{centerX+holeRadius*cosf(angle+M_PI/60.0f),
+                                        centerY+holeRadius*sinf(angle)}));
+            geometry.push_back(makeVertex(HOLE_WOOD,
+                    glm::vec3{centerX+holeRadius*cosf(angle+M_PI/60.0f),
                                         -1.0-holeDepth,
-                                        centerY+holeRadius*sinf(angle+M_PI/60.0f)},
-                                       HOLE_COLOR});
-            geometry.push_back(Vertex{{centerX+holeRadius*cosf(angle),
+                                        centerY+holeRadius*sinf(angle+M_PI/60.0f)}));
+            geometry.push_back(makeVertex(HOLE_WOOD,
+                    glm::vec3{centerX+holeRadius*cosf(angle),
                                         -1.0-holeDepth,
-                                        centerY+holeRadius*sinf(angle)},
-                                       HOLE_COLOR});
+                                        centerY+holeRadius*sinf(angle)}));
 
             // Add tesselation vertex
             innerPoints.push_back(
@@ -1318,11 +1388,10 @@ void addFloor(std::vector<Vertex>& geometry, const std::set<int>&
                                        -1.0,
                                        centerY+holeRadius*sin(angle)}));
             innerVertices.push_back(
-                    std::unique_ptr<Vertex>(
-                            new Vertex{{float((*innerPoints.back())[0]),
+                    std::make_unique<Vertex>(
+                            makeVertex(FLOOR_WOOD,glm::vec3{float((*innerPoints.back())[0]),
                                         float((*innerPoints.back())[1]),
-                                        float((*innerPoints.back())[2])},
-                                       FLOOR_COLOR}));
+                                        float((*innerPoints.back())[2])})));
 
             //printf("%f,%f\n", x, y);
             gluTessVertex(tess, innerPoints.back().get()->data(), innerVertices.back().get());
@@ -1339,3 +1408,58 @@ void addFloor(std::vector<Vertex>& geometry, const std::set<int>&
     floorVertices.clear();
 }
 
+Vertex makeVertex(Material m, glm::vec3 pos) {
+    auto woodTexCoord = glm::vec2{glm::dot(pos, wood_tex_bases[0]),
+        glm::dot(pos, wood_tex_bases[1])}*0.1f;
+    switch (m) {
+    case TOP_WOOD:
+        return Vertex{
+            {pos.x, pos.y, pos.z},
+            TOP_COLOR,
+            {woodTexCoord.x, woodTexCoord.y},
+            .5
+        };
+        break;
+    case FLOOR_WOOD:
+        return Vertex{
+            {pos.x, pos.y, pos.z},
+            FLOOR_COLOR,
+            {woodTexCoord.x, woodTexCoord.y},
+            .5
+        };
+        break;
+    case HOLE_WOOD:
+        return Vertex{
+            {pos.x, pos.y, pos.z},
+            HOLE_COLOR,
+            {woodTexCoord.x, woodTexCoord.y},
+            .5
+        };
+        break;
+    case START_PANEL:
+        return Vertex{
+            {pos.x, pos.y, pos.z},
+            START_COLOR,
+            {0,0},
+            0
+        };
+        break;
+    case END_PANEL:
+        return Vertex{
+            {pos.x, pos.y, pos.z},
+            END_COLOR,
+            {0,0},
+            0
+        };
+        break;
+    case BALL:
+        return Vertex{
+            {pos.x, pos.y, pos.z},
+            BALL_COLOR,
+            {0,0},
+            0
+        };
+        break;
+    }
+    return Vertex{};
+}

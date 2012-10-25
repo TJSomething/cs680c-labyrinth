@@ -20,8 +20,10 @@ set(STB_IMAGE_INCLUDE_DIR ${LIB_ROOT}/stb_image)
 ADD_SUBDIRECTORY(${LIB_ROOT}/stb_image)
 include_directories(${STB_IMAGE_INCLUDE_DIR})
 
+find_package(PNG REQUIRED)
 find_package(GLUT REQUIRED)
 find_package(OpenGL REQUIRED)
 find_package(GLEW REQUIRED)
+FIND_PACKAGE (Boost COMPONENTS system filesystem REQUIRED)
 
 add_subdirectory(src)

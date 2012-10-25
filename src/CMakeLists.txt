@@ -3,11 +3,16 @@ ADD_DEFINITIONS("-std=c++0x")
 SET(CMAKE_CXX_FLAGS "")
 SET(CMAKE_USE_RELATIVE_PATHS ON)
 
-set(CORELIBS ${GLUT_LIBRARY} ${OPENGL_LIBRARY} ${GLEW_LIBRARY})
-set(CORELIBS ${CORELIBS} Box2D)
-set(CORELIBS ${CORELIBS} assimp)
+set(CORELIBS
+    ${GLUT_LIBRARY}
+    ${OPENGL_LIBRARY}
+    ${GLEW_LIBRARY}
+    Box2D
+    assimp
+    ${Boost_LIBRARIES}
+    ${PNG_LIBRARY})
 
-set (LABYRINTH_FILES ${LABYRINTH_FILES} main.cpp maze.cpp)
+set (LABYRINTH_FILES ${LABYRINTH_FILES} main.cpp maze.cpp read_file.cpp)
 
 file(MAKE_DIRECTORY ../bin/)
 add_executable(../../bin/labyrinth ${LABYRINTH_FILES})
