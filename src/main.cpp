@@ -24,6 +24,7 @@
 #include <boost/filesystem/convenience.hpp>
 #include <boost/gil/gil_all.hpp>
 #include <boost/gil/extension/io/png_io.hpp>
+#include <boost/algorithm/string.hpp>
 
 #include "maze.h"
 #include "read_file.h"
@@ -40,7 +41,14 @@ struct Vertex
     GLfloat color[3];
     GLfloat tex_coord[2];
     GLfloat tex_opacity;
+    GLfloat normal[3];
+    GLfloat ambient[3];
+    GLfloat diffuse[3];
+    GLfloat specular[3];
+    GLfloat shininess;
 };
+
+const int LIGHT_COUNT = 2;
 
 //--Evil Global variables
 int w = 640, h = 480;// Window size
@@ -50,6 +58,7 @@ unsigned int vertexCounts[2]; // Needed for drawing
 
 //uniform locations
 GLint loc_mvpmat;// Location of the modelviewprojection matrix in the shader
+GLint loc_lights[LIGHT_COUNT];
 
 //attribute locations
 GLint loc_position;
@@ -57,6 +66,14 @@ GLint loc_color;
 GLint loc_tex_coord;
 GLint loc_tex_opacity;
 GLint loc_texmap;
+GLint loc_normal;
+GLint loc_ambient;
+GLint loc_diffuse;
+GLint loc_specular;
+GLint loc_shininess;
+GLint loc_light_colors;
+GLint loc_light_positions;
+GLint loc_cam_position;
 
 // Texture stuff
 std::vector<gil::rgba8_image_t> textures;
@@ -73,6 +90,11 @@ enum Material {
     START_PANEL,
     END_PANEL
 };
+
+// Lighting info
+glm::vec3 lightColors[LIGHT_COUNT];
+glm::vec3 lightPosition[LIGHT_COUNT];
+glm::vec3 cameraPosition;
 
 //transform matrices
 namespace mats {
@@ -179,7 +201,12 @@ void addWallTops(std::vector<Vertex>& geometry, const std::vector<b2Vec2>&
 void addFloor(std::vector<Vertex>& geometry, const std::set<int>&
                 holeLocs);
 void changeAngle(float x, float y);
-Vertex makeVertex(Material, glm::vec3);
+Vertex makeVertex(Material m, glm::vec3 pos, glm::vec3 normal);
+void addTriangle(std::vector<Vertex> &geometry,
+        Material m1, glm::vec3 pos1,
+        Material m2, glm::vec3 pos2,
+        Material m3, glm::vec3 pos3);
+GLint getGLLocation(const std::string &name, bool isUniform) ;
 
 //--Main
 int main(int argc, char **argv)
@@ -267,11 +294,21 @@ void render()
     //set up the Vertex Buffer Object so it can be drawn
     for (int i = 0; i < 2; i++) {
         glUniformMatrix4fv(loc_mvpmat, 1, GL_FALSE, glm::value_ptr(mats::mvp[i]));
+        glUniform3fv(loc_light_colors, LIGHT_COUNT, glm::value_ptr(lightColors[0]));
+        glUniform3fv(loc_light_positions, LIGHT_COUNT, glm::value_ptr(lightPosition[0]));
+        glUniform3fv(loc_cam_position, 1, glm::value_ptr(cameraPosition));
 
         glEnableVertexAttribArray(loc_position);
         glEnableVertexAttribArray(loc_color);
         glEnableVertexAttribArray(loc_tex_coord);
         glEnableVertexAttribArray(loc_tex_opacity);
+        glEnableVertexAttribArray(loc_normal);
+        glEnableVertexAttribArray(loc_ambient);
+        glEnableVertexAttribArray(loc_diffuse);
+        glEnableVertexAttribArray(loc_specular);
+        glEnableVertexAttribArray(loc_shininess);
+
+
         glBindBuffer(GL_ARRAY_BUFFER, vbo_geometry[i]);
         glBindTexture(GL_TEXTURE_2D, textureNames[i]);
         //set pointers into the vbo for each of the attributes(position and color)
@@ -302,6 +339,41 @@ void render()
                                GL_FALSE,
                                sizeof(Vertex),
                                (void*)offsetof(Vertex,tex_opacity));
+
+        glVertexAttribPointer( loc_normal,
+                               3,
+                               GL_FLOAT,
+                               GL_FALSE,
+                               sizeof(Vertex),
+                               (void*)offsetof(Vertex,normal));
+
+        glVertexAttribPointer( loc_ambient,
+                               3,
+                               GL_FLOAT,
+                               GL_FALSE,
+                               sizeof(Vertex),
+                               (void*)offsetof(Vertex,ambient));
+
+        glVertexAttribPointer( loc_diffuse,
+                               3,
+                               GL_FLOAT,
+                               GL_FALSE,
+                               sizeof(Vertex),
+                               (void*)offsetof(Vertex,diffuse));
+
+        glVertexAttribPointer( loc_specular,
+                               3,
+                               GL_FLOAT,
+                               GL_FALSE,
+                               sizeof(Vertex),
+                               (void*)offsetof(Vertex,specular));
+
+        glVertexAttribPointer( loc_shininess,
+                               1,
+                               GL_FLOAT,
+                               GL_FALSE,
+                               sizeof(Vertex),
+                               (void*)offsetof(Vertex,shininess));
 
         glDrawArrays(GL_TRIANGLES, 0, vertexCounts[i]);//mode, starting index, count
     }
@@ -949,55 +1021,28 @@ bool initialize()
 
     //Now we set the locations of the attributes and uniforms
     //this allows us to access them easily while rendering
-    loc_position = glGetAttribLocation(program,
-                    const_cast<const char*>("v_position"));
-    if(loc_position == -1)
-    {
-        std::cerr << "[F] POSITION NOT FOUND" << std::endl;
-        return false;
-    }
+    loc_position = getGLLocation("v_position", false);
 
-    loc_color = glGetAttribLocation(program,
-                    const_cast<const char*>("v_color"));
-    if(loc_color == -1)
-    {
-        std::cerr << "[F] V_COLOR NOT FOUND" << std::endl;
-        //return false;
-    }
+    loc_color = getGLLocation("v_color", false);
 
-    loc_tex_coord = glGetAttribLocation(program,
-                    const_cast<const char*>("v_tex_coord"));
-    if(loc_tex_coord == -1)
-    {
-        std::cerr << "[F] V_TEX_COORD NOT FOUND" << std::endl;
-        //return false;
-    }
+    loc_tex_coord = getGLLocation("v_tex_coord", false);
 
-    loc_tex_opacity = glGetAttribLocation(program,
-                    const_cast<const char*>("v_tex_opacity"));
-    if(loc_tex_opacity == -1)
-    {
-        std::cerr << "[F] V_TEX_OPACITY NOT FOUND" << std::endl;
-        //return false;
-    }
+    loc_tex_opacity = getGLLocation("v_tex_opacity", false);
 
-    loc_mvpmat = glGetUniformLocation(program,
-                    const_cast<const char*>("mvpMatrix"));
-    if(loc_mvpmat == -1)
-    {
-        std::cerr << "[F] MVPMATRIX NOT FOUND" << std::endl;
-        return false;
-    }
+    loc_mvpmat = getGLLocation("mvpMatrix", true);
 
-    loc_texmap = glGetUniformLocation(program,
-                    const_cast<const char*>("texMap"));
-    if(loc_texmap == -1)
-    {
-        std::cerr << "[F] TEXMAP NOT FOUND" << std::endl;
-        //return false;
-    }
+    loc_texmap = getGLLocation("texMap", true);
     glUniform1i(loc_texmap, 0);
-    
+
+    loc_normal = getGLLocation("v_normal", false);
+    loc_ambient = getGLLocation("v_ambient", false);
+    loc_diffuse = getGLLocation("v_diffuse", false);
+    loc_specular = getGLLocation("v_specular", false);
+    loc_shininess = getGLLocation("v_shininess", false);
+    loc_light_colors = getGLLocation("lightColor", true);
+    loc_light_positions = getGLLocation("lightPositions", true);
+    loc_cam_position = getGLLocation("cameraPosition", true);
+
     // Load and bind textures
     // Load textures
     textures.emplace_back();
@@ -1034,10 +1079,19 @@ bool initialize()
                         glm::vec3(0.0, 0.0, 0.0), //Focus point
                         glm::vec3(0.0, 1.0, 0.0)); //Positive Y is up
 
+    // Initialize the lights and cameras
+    cameraPosition = glm::vec3{0.0, 21.0, -21.0};
+    lightPosition[0] = glm::vec3{-10, 10, -10};
+    lightColors[0] = glm::vec3{1.0, .3, .3};
+    lightPosition[1] = glm::vec3{10, 10, -5};
+    lightColors[1] = glm::vec3{.3, 1.0, .3};
+
     mats::projection = glm::perspective( 45.0f, //the FoV typically 90 degrees is good which is what this is set to
                                    float(w)/float(h), //Aspect Ratio, so Circles stay Circular
                                    0.01f, //Distance to the near plane, normally a small value like this
-                                   100.0f); //Distance to the far plane, 
+                                   100.0f); //Distance to the far plane,
+
+    // Setup
 
     //enable depth testing
     glEnable(GL_DEPTH_TEST);
@@ -1163,7 +1217,8 @@ std::vector<Vertex> makeSphere(glm::vec3 center, GLfloat rad,
     for (auto pt : points) {
         pt += center;
         result.push_back(
-                makeVertex(BALL, glm::vec3{pt.x, pt.y, pt.z}));
+                makeVertex(BALL, glm::vec3{pt.x, pt.y, pt.z},
+                        glm::vec3{pt.x, pt.y, pt.z}/rad));
     }
     return result;
 }
@@ -1178,12 +1233,16 @@ void addWalls(std::vector<Vertex>& geometry, b2Body* board,
     // Add the walls to the geometry
     for (int i = 0; i < ptCount; i++) {
         int i2 = (i+1)%pts.size();
-        geometry.push_back(makeVertex(TOP_WOOD, glm::vec3{pts[i].x, 0.0f, pts[i].y}));
-        geometry.push_back(makeVertex(FLOOR_WOOD, glm::vec3{pts[i].x, -1.0f, pts[i].y}));
-        geometry.push_back(makeVertex(TOP_WOOD, glm::vec3{pts[i2].x, 0.0f, pts[i2].y}));
-        geometry.push_back(makeVertex(FLOOR_WOOD, glm::vec3{pts[i].x, -1.0f, pts[i].y}));
-        geometry.push_back(makeVertex(FLOOR_WOOD, glm::vec3{pts[i2].x, -1.0f, pts[i2].y}));
-        geometry.push_back(makeVertex(TOP_WOOD, glm::vec3{pts[i2].x, 0.0f, pts[i2].y}));
+        addTriangle(geometry,
+                TOP_WOOD, glm::vec3{pts[i].x, 0.0f, pts[i].y},
+                FLOOR_WOOD, glm::vec3{pts[i].x, -1.0f, pts[i].y},
+                TOP_WOOD, glm::vec3{pts[i2].x, 0.0f, pts[i2].y}
+                );
+        addTriangle(geometry,
+                FLOOR_WOOD, glm::vec3{pts[i].x, -1.0f, pts[i].y},
+                FLOOR_WOOD, glm::vec3{pts[i2].x, -1.0f, pts[i2].y},
+                TOP_WOOD, glm::vec3{pts[i2].x, 0.0f, pts[i2].y}
+                );
     }
     // Add the walls to the physics
     b2ChainShape wallShape;
@@ -1201,12 +1260,12 @@ void addPanel(std::vector<Vertex>& geometry, int x, int y, Material m) {
     GLfloat pRight = left + (x+1)*cellHSize - wallThickness;
     GLfloat pBottom = bottom + y*cellVSize + wallThickness;
     GLfloat pTop = bottom + (y+1)*cellVSize - wallThickness;
-    geometry.push_back(makeVertex(m, glm::vec3{pLeft, -0.95f, pBottom}));
-    geometry.push_back(makeVertex(m, glm::vec3{pRight, -0.95f, pBottom}));
-    geometry.push_back(makeVertex(m, glm::vec3{pLeft, -0.95f, pTop}));
-    geometry.push_back(makeVertex(m, glm::vec3{pRight, -0.95f, pTop}));
-    geometry.push_back(makeVertex(m, glm::vec3{pLeft, -0.95f, pTop}));
-    geometry.push_back(makeVertex(m, glm::vec3{pRight, -0.95f, pBottom}));
+    addTriangle(geometry, m, glm::vec3{pLeft, -0.95f, pBottom},
+            m, glm::vec3{pRight, -0.95f, pBottom},
+            m, glm::vec3{pLeft, -0.95f, pTop});
+    addTriangle(geometry, m, glm::vec3{pRight, -0.95f, pTop},
+            m, glm::vec3{pLeft, -0.95f, pTop},
+            m, glm::vec3{pRight, -0.95f, pBottom});
 }
 
 #ifndef CALLBACK
@@ -1230,22 +1289,40 @@ void CALLBACK combineCallback(GLdouble coords[3],
    vertex->position[1] = coords[1];
    vertex->position[2] = coords[2];
 
-   for (j = 0; j < 3; j++)
+   for (j = 0; j < 3; j++) {
        vertex->color[j] = 0;
+       vertex->normal[j] = 0;
+       vertex->ambient[j] = 0;
+       vertex->diffuse[j] = 0;
+       vertex->specular[j] = 0;
+   }
    for (j = 0; j < 2; j++)
        vertex->tex_coord[j] = 0;
    vertex->tex_opacity = 0;
+   vertex->shininess = 0;
 
    for (i = 0; i < 4; i++) {
        if (weight[i] > 0) {
            for (j = 0; j < 3; j++) {
               vertex->color[j] += weight[i] * (vertex_data[i]->color[j]);
+              vertex->normal[j] = weight[i] * (vertex_data[i]->normal[j]);
+              vertex->ambient[j] = weight[i] * (vertex_data[i]->ambient[j]);
+              vertex->diffuse[j] = weight[i] * (vertex_data[i]->diffuse[j]);
+              vertex->specular[j] = weight[i] * (vertex_data[i]->specular[j]);
            }
            for (j = 0; j < 2; j++)
                vertex->tex_coord[j] += weight[i] * (vertex_data[i]->tex_coord[j]);
            vertex->tex_opacity += weight[i]*vertex_data[i]->tex_opacity;
+           vertex->shininess += weight[i]*vertex_data[i]->shininess;
        }
    }
+
+   // Normals should be of length 1
+   auto n = glm::normalize(glm::vec3(vertex->normal[0], vertex->normal[1],
+           vertex->normal[2]));
+   vertex->normal[0] = n.x;
+   vertex->normal[1] = n.y;
+   vertex->normal[2] = n.z;
 
    if (*dataOut != nullptr)
        delete *dataOut;
@@ -1280,7 +1357,11 @@ void addWallTops(std::vector<Vertex>& geometry, const std::vector<b2Vec2>&
         {right, 0.0, bottom},
         {left, 0.0, bottom}};
     for (auto coords : outsideCoords) {
-        innerVertices.emplace_back(std::make_unique<Vertex>(makeVertex(TOP_WOOD,glm::vec3{float(coords[0]), float(coords[1]), float(coords[2])})));
+        innerVertices.emplace_back(
+                std::make_unique<Vertex>(
+                        makeVertex(TOP_WOOD, glm::vec3 { float(coords[0]),
+                                float(coords[1]), float(coords[2]) },
+                                glm::vec3 { 0, 1, 0 })));
         gluTessVertex(tess, coords.data(), innerVertices.back().get());
     }
     gluTessEndContour(tess);
@@ -1293,9 +1374,12 @@ void addWallTops(std::vector<Vertex>& geometry, const std::vector<b2Vec2>&
         innerCoords.back()[1] = 0;
         innerCoords.back()[2] = corner.y;
         innerVertices.emplace_back(
-                std::make_unique<Vertex>(makeVertex(TOP_WOOD, glm::vec3{float(innerCoords.back()[0]),
-                    float(innerCoords.back()[1]),
-                    float(innerCoords.back()[2])})));
+                std::make_unique<Vertex>(
+                        makeVertex(TOP_WOOD,
+                                glm::vec3 { float(innerCoords.back()[0]), float(
+                                        innerCoords.back()[1]), float(
+                                        innerCoords.back()[2]) }, glm::vec3 { 0,
+                                        1, 0 })));
         gluTessVertex(tess, innerCoords.back().get(), innerVertices.back().get());
     }
     gluTessEndContour(tess);
@@ -1342,7 +1426,8 @@ void addFloor(std::vector<Vertex>& geometry, const std::set<int>&
                         makeVertex(FLOOR_WOOD,
                                 glm::vec3{float(coords[0]),
                                  float(coords[1]),
-                                 float(coords[2])})));
+                                 float(coords[2])},
+                                glm::vec3{0,1,0})));
         gluTessVertex(tess, coords.data(), innerVertices.back().get());
     }
     gluTessEndContour(tess);
@@ -1354,47 +1439,46 @@ void addFloor(std::vector<Vertex>& geometry, const std::set<int>&
         holes.emplace_back(centerX, centerY);
 
         gluTessBeginContour(tess);
-        for (float angle = 0.0f; angle < M_PI*2; angle += M_PI/60.0f) {
-            geometry.push_back(makeVertex(HOLE_WOOD,
-                    glm::vec3{centerX+holeRadius*cosf(angle),
-                                        -1.0,
-                                        centerY+holeRadius*sinf(angle)}));
-            geometry.push_back(makeVertex(HOLE_WOOD,
-                    glm::vec3{centerX+holeRadius*cosf(angle+M_PI/60.0f),
-                                        -1.0,
-                                        centerY+holeRadius*sinf(angle+M_PI/60.0f)}));
-            geometry.push_back(makeVertex(HOLE_WOOD,
-                    glm::vec3{centerX+holeRadius*cosf(angle+M_PI/60.0f),
-                                        -1.0-holeDepth,
-                                        centerY+holeRadius*sinf(angle+M_PI/60.0f)}));
-            geometry.push_back(makeVertex(HOLE_WOOD,
-                    glm::vec3{centerX+holeRadius*cosf(angle),
-                                        -1.0,
-                                        centerY+holeRadius*sinf(angle)}));
-            geometry.push_back(makeVertex(HOLE_WOOD,
-                    glm::vec3{centerX+holeRadius*cosf(angle+M_PI/60.0f),
-                                        -1.0-holeDepth,
-                                        centerY+holeRadius*sinf(angle+M_PI/60.0f)}));
-            geometry.push_back(makeVertex(HOLE_WOOD,
-                    glm::vec3{centerX+holeRadius*cosf(angle),
-                                        -1.0-holeDepth,
-                                        centerY+holeRadius*sinf(angle)}));
+        for (float angle = 0.0f; angle < M_PI * 2; angle += M_PI / 60.0f) {
+            addTriangle(geometry, HOLE_WOOD,
+                    glm::vec3 { centerX + holeRadius * cosf(angle), -1.0,
+                            centerY + holeRadius * sinf(angle) }, HOLE_WOOD,
+                    glm::vec3 { centerX
+                            + holeRadius * cosf(angle + M_PI / 60.0f), -1.0,
+                            centerY + holeRadius * sinf(angle + M_PI / 60.0f) },
+                    HOLE_WOOD,
+                    glm::vec3 { centerX
+                            + holeRadius * cosf(angle + M_PI / 60.0f), -1.0
+                            - holeDepth, centerY
+                            + holeRadius * sinf(angle + M_PI / 60.0f) });
+            addTriangle(geometry, HOLE_WOOD,
+                    glm::vec3 { centerX + holeRadius * cosf(angle), -1.0,
+                            centerY + holeRadius * sinf(angle) }, HOLE_WOOD,
+                    glm::vec3 { centerX
+                            + holeRadius * cosf(angle + M_PI / 60.0f), -1.0
+                            - holeDepth, centerY
+                            + holeRadius * sinf(angle + M_PI / 60.0f) },
+                    HOLE_WOOD,
+                    glm::vec3 { centerX + holeRadius * cosf(angle), -1.0
+                            - holeDepth, centerY + holeRadius * sinf(angle) });
 
             // Add tesselation vertex
             innerPoints.push_back(
                     std::unique_ptr<std::vector<GLdouble>>(
-                            new std::vector<GLdouble>
-                                      {centerX+holeRadius*cos(angle),
-                                       -1.0,
-                                       centerY+holeRadius*sin(angle)}));
+                            new std::vector<GLdouble> { centerX
+                                    + holeRadius * cos(angle), -1.0, centerY
+                                    + holeRadius * sin(angle) }));
             innerVertices.push_back(
                     std::make_unique<Vertex>(
-                            makeVertex(FLOOR_WOOD,glm::vec3{float((*innerPoints.back())[0]),
-                                        float((*innerPoints.back())[1]),
-                                        float((*innerPoints.back())[2])})));
+                            makeVertex(FLOOR_WOOD,
+                                    glm::vec3 { float((*innerPoints.back())[0]),
+                                            float((*innerPoints.back())[1]),
+                                            float((*innerPoints.back())[2]) },
+                                    glm::vec3 { 0, 1, 0 })));
 
             //printf("%f,%f\n", x, y);
-            gluTessVertex(tess, innerPoints.back().get()->data(), innerVertices.back().get());
+            gluTessVertex(tess, innerPoints.back().get()->data(),
+                    innerVertices.back().get());
         }
         gluTessEndContour(tess);
     }
@@ -1408,7 +1492,7 @@ void addFloor(std::vector<Vertex>& geometry, const std::set<int>&
     floorVertices.clear();
 }
 
-Vertex makeVertex(Material m, glm::vec3 pos) {
+Vertex makeVertex(Material m, glm::vec3 pos, glm::vec3 normal) {
     auto woodTexCoord = glm::vec2{glm::dot(pos, wood_tex_bases[0]),
         glm::dot(pos, wood_tex_bases[1])}*0.1f;
     switch (m) {
@@ -1417,7 +1501,12 @@ Vertex makeVertex(Material m, glm::vec3 pos) {
             {pos.x, pos.y, pos.z},
             TOP_COLOR,
             {woodTexCoord.x, woodTexCoord.y},
-            .5
+            1,
+            {normal.x, normal.y, normal.z},
+            {0.4, 0.4, 0.4},
+            {0.4, 0.4, 0.4},
+            {0.8, 0.8, 0.8},
+            3
         };
         break;
     case FLOOR_WOOD:
@@ -1425,7 +1514,11 @@ Vertex makeVertex(Material m, glm::vec3 pos) {
             {pos.x, pos.y, pos.z},
             FLOOR_COLOR,
             {woodTexCoord.x, woodTexCoord.y},
-            .5
+            1,
+            {0.2, 0.2, 0.2},
+            {0.4, 0.4, 0.4},
+            {0.8, 0.8, 0.8},
+            3
         };
         break;
     case HOLE_WOOD:
@@ -1433,7 +1526,11 @@ Vertex makeVertex(Material m, glm::vec3 pos) {
             {pos.x, pos.y, pos.z},
             HOLE_COLOR,
             {woodTexCoord.x, woodTexCoord.y},
-            .5
+            1,
+            {0.1, 0.1, 0.1},
+            {0.4, 0.4, 0.4},
+            {0.8, 0.8, 0.8},
+            3
         };
         break;
     case START_PANEL:
@@ -1441,7 +1538,11 @@ Vertex makeVertex(Material m, glm::vec3 pos) {
             {pos.x, pos.y, pos.z},
             START_COLOR,
             {0,0},
-            0
+            0,
+            {0.4, 0.4, 0.4},
+            {0.4, 0.4, 0.4},
+            {1, 1, 1},
+            8
         };
         break;
     case END_PANEL:
@@ -1449,7 +1550,11 @@ Vertex makeVertex(Material m, glm::vec3 pos) {
             {pos.x, pos.y, pos.z},
             END_COLOR,
             {0,0},
-            0
+            0,
+            {0.4, 0.4, 0.4},
+            {0.4, 0.4, 0.4},
+            {1, 1, 1},
+            8
         };
         break;
     case BALL:
@@ -1457,9 +1562,40 @@ Vertex makeVertex(Material m, glm::vec3 pos) {
             {pos.x, pos.y, pos.z},
             BALL_COLOR,
             {0,0},
-            0
+            0,
+            {0.4, 0.4, 0.4},
+            {0.4, 0.4, 0.4},
+            {1, 1, 1},
+            12
         };
         break;
     }
     return Vertex{};
+}
+
+void addTriangle(std::vector<Vertex> &geometry,
+        Material m1, glm::vec3 pos1,
+        Material m2, glm::vec3 pos2,
+        Material m3, glm::vec3 pos3) {
+    glm::vec3 normal = glm::normalize(glm::cross(pos2-pos1, pos3-pos2));
+
+    geometry.push_back(makeVertex(m1, pos1, normal));
+    geometry.push_back(makeVertex(m2, pos2, normal));
+    geometry.push_back(makeVertex(m3, pos3, normal));
+}
+
+GLint getGLLocation(const std::string &name, bool isUniform) {
+    GLint result;
+    if (isUniform)
+        result = glGetUniformLocation(program,
+                            const_cast<const char*>(name.c_str()));
+    else
+        result = glGetAttribLocation(program,
+                        const_cast<const char*>(name.c_str()));
+    if(result == -1)
+    {
+        std::cerr << "[F] " << boost::to_upper_copy(name) << " NOT FOUND" <<
+                std::endl;
+    }
+    return result;
 }
