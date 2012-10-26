@@ -24,7 +24,7 @@ void main(void){
    color = v_color;
    texCoords = v_tex_coord;
    texOpacity = v_tex_opacity;
-   normal = v_normal;
+   normal = (mvpMatrix * vec4(v_normal, 0.0)).xyz;
    ambient = v_ambient;
    diffuse = v_diffuse;
    specular = v_specular;

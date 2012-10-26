@@ -991,6 +991,16 @@ bool initialize()
     if(!shader_status)
     {
         std::cerr << "[F] FAILED TO COMPILE VERTEX SHADER!" << std::endl;
+	
+        int errorLength;
+        std::unique_ptr<char[]> error;
+        glGetShaderiv(vertex_shader, GL_INFO_LOG_LENGTH, &errorLength);
+	
+	error = std::unique_ptr<char[]>(new char[errorLength]);
+	glGetShaderInfoLog(vertex_shader, errorLength, nullptr, error.get());
+	
+	std::cout << error.get() << std::endl;
+	
         return false;
     }
 
@@ -1002,6 +1012,16 @@ bool initialize()
     if(!shader_status)
     {
         std::cerr << "[F] FAILED TO COMPILE FRAGMENT SHADER!" << std::endl;
+	
+        int errorLength;
+        std::unique_ptr<char[]> error;
+        glGetShaderiv(fragment_shader, GL_INFO_LOG_LENGTH, &errorLength);
+	
+	error = std::unique_ptr<char[]>(new char[errorLength]);
+	glGetShaderInfoLog(fragment_shader, errorLength, nullptr, error.get());
+	
+	std::cout << error.get() << std::endl;
+	
         return false;
     }
 
@@ -1081,7 +1101,7 @@ bool initialize()
 
     // Initialize the lights and cameras
     cameraPosition = glm::vec3{0.0, 21.0, -21.0};
-    lightPosition[0] = glm::vec3{-10, 10, -10};
+    lightPosition[0] = glm::vec3{-5, 10, -10};
     lightColors[0] = glm::vec3{1.0, .3, .3};
     lightPosition[1] = glm::vec3{10, 10, -5};
     lightColors[1] = glm::vec3{.3, 1.0, .3};
@@ -1261,11 +1281,12 @@ void addPanel(std::vector<Vertex>& geometry, int x, int y, Material m) {
     GLfloat pBottom = bottom + y*cellVSize + wallThickness;
     GLfloat pTop = bottom + (y+1)*cellVSize - wallThickness;
     addTriangle(geometry, m, glm::vec3{pLeft, -0.95f, pBottom},
+                m, glm::vec3{pLeft, -0.95f, pTop},
+                m, glm::vec3{pRight, -0.95f, pBottom}
+            );
+    addTriangle(geometry, m, glm::vec3{pRight, -0.95f, pTop},
             m, glm::vec3{pRight, -0.95f, pBottom},
             m, glm::vec3{pLeft, -0.95f, pTop});
-    addTriangle(geometry, m, glm::vec3{pRight, -0.95f, pTop},
-            m, glm::vec3{pLeft, -0.95f, pTop},
-            m, glm::vec3{pRight, -0.95f, pBottom});
 }
 
 #ifndef CALLBACK
@@ -1275,6 +1296,7 @@ void addPanel(std::vector<Vertex>& geometry, int x, int y, Material m) {
 std::vector<Vertex> wallTopVertices;
 void CALLBACK addWallTopVertex(GLvoid *vertex) {
     Vertex v = *(Vertex*) vertex;
+    
     wallTopVertices.push_back(v);
 }
 
@@ -1305,10 +1327,10 @@ void CALLBACK combineCallback(GLdouble coords[3],
        if (weight[i] > 0) {
            for (j = 0; j < 3; j++) {
               vertex->color[j] += weight[i] * (vertex_data[i]->color[j]);
-              vertex->normal[j] = weight[i] * (vertex_data[i]->normal[j]);
-              vertex->ambient[j] = weight[i] * (vertex_data[i]->ambient[j]);
-              vertex->diffuse[j] = weight[i] * (vertex_data[i]->diffuse[j]);
-              vertex->specular[j] = weight[i] * (vertex_data[i]->specular[j]);
+              vertex->normal[j] += weight[i] * (vertex_data[i]->normal[j]);
+              vertex->ambient[j] += weight[i] * (vertex_data[i]->ambient[j]);
+              vertex->diffuse[j] += weight[i] * (vertex_data[i]->diffuse[j]);
+              vertex->specular[j] += weight[i] * (vertex_data[i]->specular[j]);
            }
            for (j = 0; j < 2; j++)
                vertex->tex_coord[j] += weight[i] * (vertex_data[i]->tex_coord[j]);
@@ -1442,25 +1464,27 @@ void addFloor(std::vector<Vertex>& geometry, const std::set<int>&
         for (float angle = 0.0f; angle < M_PI * 2; angle += M_PI / 60.0f) {
             addTriangle(geometry, HOLE_WOOD,
                     glm::vec3 { centerX + holeRadius * cosf(angle), -1.0,
-                            centerY + holeRadius * sinf(angle) }, HOLE_WOOD,
+                            centerY + holeRadius * sinf(angle) },
+                    HOLE_WOOD,
+                    glm::vec3 { centerX
+                            + holeRadius * cosf(angle + M_PI / 60.0f), -1.0
+                            - holeDepth, centerY
+                            + holeRadius * sinf(angle + M_PI / 60.0f) }
+                            , HOLE_WOOD,
                     glm::vec3 { centerX
                             + holeRadius * cosf(angle + M_PI / 60.0f), -1.0,
-                            centerY + holeRadius * sinf(angle + M_PI / 60.0f) },
+                            centerY + holeRadius * sinf(angle + M_PI / 60.0f) });
+            addTriangle(geometry, HOLE_WOOD,
+                    glm::vec3 { centerX + holeRadius * cosf(angle), -1.0,
+                            centerY + holeRadius * sinf(angle) },
                     HOLE_WOOD,
+                    glm::vec3 { centerX + holeRadius * cosf(angle), -1.0
+                            - holeDepth, centerY + holeRadius * sinf(angle) },
+			HOLE_WOOD,
                     glm::vec3 { centerX
                             + holeRadius * cosf(angle + M_PI / 60.0f), -1.0
                             - holeDepth, centerY
                             + holeRadius * sinf(angle + M_PI / 60.0f) });
-            addTriangle(geometry, HOLE_WOOD,
-                    glm::vec3 { centerX + holeRadius * cosf(angle), -1.0,
-                            centerY + holeRadius * sinf(angle) }, HOLE_WOOD,
-                    glm::vec3 { centerX
-                            + holeRadius * cosf(angle + M_PI / 60.0f), -1.0
-                            - holeDepth, centerY
-                            + holeRadius * sinf(angle + M_PI / 60.0f) },
-                    HOLE_WOOD,
-                    glm::vec3 { centerX + holeRadius * cosf(angle), -1.0
-                            - holeDepth, centerY + holeRadius * sinf(angle) });
 
             // Add tesselation vertex
             innerPoints.push_back(
@@ -1503,9 +1527,9 @@ Vertex makeVertex(Material m, glm::vec3 pos, glm::vec3 normal) {
             {woodTexCoord.x, woodTexCoord.y},
             1,
             {normal.x, normal.y, normal.z},
+            {0.6, 0.6, 0.6},
             {0.4, 0.4, 0.4},
-            {0.4, 0.4, 0.4},
-            {0.8, 0.8, 0.8},
+            {0.03, 0.03, 0.03},
             3
         };
         break;
@@ -1515,9 +1539,10 @@ Vertex makeVertex(Material m, glm::vec3 pos, glm::vec3 normal) {
             FLOOR_COLOR,
             {woodTexCoord.x, woodTexCoord.y},
             1,
-            {0.2, 0.2, 0.2},
+            {normal.x, normal.y, normal.z},
+            {0.5, 0.5, 0.5},
             {0.4, 0.4, 0.4},
-            {0.8, 0.8, 0.8},
+            {0.03, 0.03, 0.03},
             3
         };
         break;
@@ -1527,9 +1552,10 @@ Vertex makeVertex(Material m, glm::vec3 pos, glm::vec3 normal) {
             HOLE_COLOR,
             {woodTexCoord.x, woodTexCoord.y},
             1,
-            {0.1, 0.1, 0.1},
+            {normal.x, normal.y, normal.z},
+            {0.2, 0.2, 0.2},
             {0.4, 0.4, 0.4},
-            {0.8, 0.8, 0.8},
+            {0.03, 0.03, 0.03},
             3
         };
         break;
@@ -1539,9 +1565,10 @@ Vertex makeVertex(Material m, glm::vec3 pos, glm::vec3 normal) {
             START_COLOR,
             {0,0},
             0,
+            {normal.x, normal.y, normal.z},
             {0.4, 0.4, 0.4},
             {0.4, 0.4, 0.4},
-            {1, 1, 1},
+            {.2, .2, .2},
             8
         };
         break;
@@ -1551,9 +1578,10 @@ Vertex makeVertex(Material m, glm::vec3 pos, glm::vec3 normal) {
             END_COLOR,
             {0,0},
             0,
+            {normal.x, normal.y, normal.z},
             {0.4, 0.4, 0.4},
             {0.4, 0.4, 0.4},
-            {1, 1, 1},
+            {.2, .2, .2},
             8
         };
         break;
@@ -1563,10 +1591,11 @@ Vertex makeVertex(Material m, glm::vec3 pos, glm::vec3 normal) {
             BALL_COLOR,
             {0,0},
             0,
+            {normal.x, normal.y, normal.z},
             {0.4, 0.4, 0.4},
             {0.4, 0.4, 0.4},
-            {1, 1, 1},
-            12
+            {.2, .2, .2},
+            15
         };
         break;
     }
