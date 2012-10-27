@@ -11,20 +11,20 @@
 #include <set>
 #include <string>
 
-#include <glm/glm.hpp>
-#include <glm/gtc/matrix_transform.hpp>
-#include <glm/gtc/type_ptr.hpp> //Makes passing matrices to shaders easier
-
 #include <Box2D/Box2D.h>
-
-#include <assimp/Importer.hpp>
-
-#include <stb_image.h>
 
 #include <boost/filesystem/convenience.hpp>
 #include <boost/gil/gil_all.hpp>
 #include <boost/gil/extension/io/png_io.hpp>
 #include <boost/algorithm/string.hpp>
+
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/type_ptr.hpp> //Makes passing matrices to shaders easier
+
+#include <assimp/Importer.hpp>
+
+#include <stb_image.h>
 
 #include "maze.h"
 #include "read_file.h"
@@ -59,6 +59,7 @@ unsigned int vertexCounts[2]; // Needed for drawing
 //uniform locations
 GLint loc_mvpmat;// Location of the modelviewprojection matrix in the shader
 GLint loc_lights[LIGHT_COUNT];
+GLint loc_to_world_mat;
 
 //attribute locations
 GLint loc_position;
@@ -103,6 +104,7 @@ namespace mats {
 	glm::mat4 view;//world->eye
 	glm::mat4 projection;//eye->clip
 	glm::mat4 mvp[2];//premultiplied modelviewprojections
+	glm::mat4 toWorld;
 }
 
 #define HOLE_COLOR {0.14, 0.11, 0.12}
@@ -121,6 +123,7 @@ void keyboardUp(unsigned char key, int x_pos, int y_pos);
 void passiveMotion(int, int);
 void specialKey(int, int, int);
 void specialKeyUp(int key, int x, int y);
+void mouse(int button, int state, int x, int y);
 
 //--Resource management
 bool initialize();
@@ -189,6 +192,8 @@ bool keys[256];
 int mouseX = 0, mouseY = 0;
 float keyboardSensitivity = 200.0f;
 float mouseSensitivity = 0.5f;
+bool leftMouseButton = false;
+bool rightMouseButton = false;
 
 // Utility functions
 std::vector<Vertex> makeSphere(glm::vec3 center, GLfloat rad,
@@ -285,6 +290,8 @@ void render()
     //premultiply the matrix for this example
     mats::mvp[0] = mats::projection * mats::view * mats::board;
     mats::mvp[1] = mats::mvp[0] * mats::ball;
+    mats::toWorld =
+        glm::inverse(mats::view)* glm::inverse(mats::projection);
 
     //enable the shader program
     glUseProgram(program);
@@ -294,6 +301,8 @@ void render()
     //set up the Vertex Buffer Object so it can be drawn
     for (int i = 0; i < 2; i++) {
         glUniformMatrix4fv(loc_mvpmat, 1, GL_FALSE, glm::value_ptr(mats::mvp[i]));
+        glUniformMatrix4fv(loc_to_world_mat, 1, GL_FALSE,
+                glm::value_ptr(mats::toWorld));
         glUniform3fv(loc_light_colors, LIGHT_COUNT, glm::value_ptr(lightColors[0]));
         glUniform3fv(loc_light_positions, LIGHT_COUNT, glm::value_ptr(lightPosition[0]));
         glUniform3fv(loc_cam_position, 1, glm::value_ptr(cameraPosition));
@@ -460,6 +469,23 @@ void updateRunning(float dt)
     }
     mouseX = 0;
     mouseY = 0;
+    // Lights
+    if (keys['1']) {
+        if (lightColors[0].r == 0.0f) {
+            lightColors[0] = glm::vec3{1.0, .3, .3};
+        } else {
+            lightColors[0] = glm::vec3{0.0, 0.0, 0.0};
+        }
+        keys['1'] = 0;
+    }
+    if (keys['2']) {
+        if (lightColors[1].r == 0.0f) {
+            lightColors[1] = glm::vec3{.3, .3, 1.0};
+        } else {
+            lightColors[1] = glm::vec3{0.0, 0.0, 0.0};
+        }
+        keys['2'] = 0;
+    }
 
     //angle += dt * M_PI/2; //move through 90 degrees a second
     mats::board = //glm::translate( glm::mat4(1.0f), glm::vec3(4.0 * sin(angle), 0.0, 4.0 * cos(angle)));
@@ -588,8 +614,9 @@ void updateLose(float dt) {
         menuItem = 0;
         keys[27] = false;
     }
-    if (keys['\r']) {
+    if (keys['\r'] || leftMouseButton) {
         keys['\r'] = false;
+        leftMouseButton = false;
         cleanUp();
         initialize();
     }
@@ -768,16 +795,47 @@ void passiveMotion(int x, int y)
 {
     static int centerX = glutGet(GLUT_WINDOW_WIDTH) / 2;
     static int centerY = glutGet(GLUT_WINDOW_HEIGHT) / 2;
-    static bool checkingForMotion = true;
-    mouseX += centerX-x;
-    mouseY += centerY-y;
+    static bool mouseOn = false;
+    static bool checkingForMotion = false;
 
-    if (checkingForMotion)
-    {
-    	glutWarpPointer(centerX, centerY);
+    if (mouseOn)
+        if (state == RUNNING) {
+            mouseX += centerX-x;
+            mouseY += centerY-y;
+
+            if (checkingForMotion)
+            {
+                glutWarpPointer(centerX, centerY);
+            }
+
+            checkingForMotion = !checkingForMotion;
+        } else {
+            glutSetCursor(GLUT_CURSOR_LEFT_ARROW);
+            mouseOn = false;
+        }
+    else
+        if (state == RUNNING) {
+            glutSetCursor(GLUT_CURSOR_NONE);
+            checkingForMotion = false;
+            glutWarpPointer(centerX, centerY);
+            mouseOn = true;
+            mouseX -= centerX-x;
+            mouseY -= centerY-y;
+        }
+}
+
+void mouse(int button, int state, int x, int y) {
+    if (button == GLUT_LEFT_BUTTON) {
+        if (state == GLUT_DOWN)
+            leftMouseButton = true;
+        else
+            leftMouseButton = false;
+    } else if (button == GLUT_RIGHT_BUTTON) {
+        if (state == GLUT_DOWN)
+            rightMouseButton = true;
+        else
+            rightMouseButton = false;
     }
-
-    checkingForMotion = !checkingForMotion;
 }
 
 bool initialize()
@@ -1062,6 +1120,7 @@ bool initialize()
     loc_light_colors = getGLLocation("lightColor", true);
     loc_light_positions = getGLLocation("lightPositions", true);
     loc_cam_position = getGLLocation("cameraPosition", true);
+    loc_to_world_mat = getGLLocation("toWorldMatrix", true);
 
     // Load and bind textures
     // Load textures
@@ -1099,17 +1158,18 @@ bool initialize()
                         glm::vec3(0.0, 0.0, 0.0), //Focus point
                         glm::vec3(0.0, 1.0, 0.0)); //Positive Y is up
 
-    // Initialize the lights and cameras
-    cameraPosition = glm::vec3{0.0, 21.0, -21.0};
-    lightPosition[0] = glm::vec3{-5, 10, -10};
-    lightColors[0] = glm::vec3{1.0, .3, .3};
-    lightPosition[1] = glm::vec3{10, 10, -5};
-    lightColors[1] = glm::vec3{.3, 1.0, .3};
-
     mats::projection = glm::perspective( 45.0f, //the FoV typically 90 degrees is good which is what this is set to
                                    float(w)/float(h), //Aspect Ratio, so Circles stay Circular
                                    0.01f, //Distance to the near plane, normally a small value like this
                                    100.0f); //Distance to the far plane,
+
+    // Initialize the lights
+    cameraPosition = glm::vec3{0.0, 21.0, -21.0};
+    lightPosition[0] =
+            glm::vec3{0, 1, 5};
+    lightColors[0] = glm::vec3{1.0, .3, .3};
+    lightPosition[1] = glm::vec3{0, 1, -5};
+    lightColors[1] = glm::vec3{.3, 1.0, .3};
 
     // Setup
 
@@ -1593,8 +1653,8 @@ Vertex makeVertex(Material m, glm::vec3 pos, glm::vec3 normal) {
             0,
             {normal.x, normal.y, normal.z},
             {0.4, 0.4, 0.4},
-            {0.4, 0.4, 0.4},
-            {.2, .2, .2},
+            {0.7, 0.7, 0.7},
+            {.7, .7, .7},
             15
         };
         break;

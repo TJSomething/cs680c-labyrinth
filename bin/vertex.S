@@ -16,17 +16,20 @@ varying vec3 ambient;
 varying vec3 diffuse;
 varying vec3 specular;
 varying float shininess;
+varying vec4 eyeCoords;
 
 uniform mat4 mvpMatrix;
+uniform mat4 toWorldMatrix;
 
 void main(void){
    gl_Position = mvpMatrix * vec4(v_position, 1.0);
    color = v_color;
    texCoords = v_tex_coord;
    texOpacity = v_tex_opacity;
-   normal = (mvpMatrix * vec4(v_normal, 0.0)).xyz;
+   normal = (toWorldMatrix*mvpMatrix * vec4(v_normal, 0.0)).xyz;
    ambient = v_ambient;
    diffuse = v_diffuse;
    specular = v_specular;
    shininess = v_shininess;
+   eyeCoords = toWorldMatrix * gl_Position;
 }

@@ -6,6 +6,7 @@ varying vec3 ambient;
 varying vec3 diffuse;
 varying vec3 specular;
 varying float shininess;
+varying vec4 eyeCoords;
 
 uniform sampler2D texMap;
 uniform vec3 lightColor[2];
@@ -14,12 +15,12 @@ uniform vec3 cameraPosition;
 
 void main(void){
    vec3 lightVectors[2];
-   vec3 eyeVector = normalize(cameraPosition - gl_FragCoord.xyz);
+   vec3 eyeVector = normalize(cameraPosition - eyeCoords.xyz);
    vec3 reflectVectors[2];
    vec3 fixedNormal = normalize(normal);
 
    for (int i = 0; i < 2; i++) {
-       lightVectors[i] = normalize(lightPositions[i] - gl_FragCoord.xyz);
+       lightVectors[i] = normalize(lightPositions[i] - eyeCoords.xyz);
        reflectVectors[i] = normalize(2.0 * dot(lightVectors[i], fixedNormal) * fixedNormal - lightVectors[i]);
    }
 
@@ -32,11 +33,13 @@ void main(void){
    vec4 specularTerm;
    for (int i = 0; i < 2; i++) {
       diffuseTerm += dot(lightVectors[i], fixedNormal) * vec4(lightColor[i], 1);
-      specularTerm += pow(dot(reflectVectors[i], eyeVector), shininess) * vec4(lightColor[i], 1);
+      specularTerm += pow(clamp(dot(reflectVectors[i], eyeVector), 0.0, 1.0), shininess) * vec4(lightColor[i], 1);
    }
    diffuseTerm *= flatColor * vec4(diffuse, 1.0);
    specularTerm *= vec4(specular, 1.0);
    
-   gl_FragColor = clamp(ambientTerm + diffuseTerm + specularTerm, 0.0, 1.0);
-   //gl_FragColor = vec4(normal, 1.0);
+   gl_FragColor = clamp(ambientTerm, 0.0, 1.0) + 
+                  clamp(diffuseTerm, 0.0, 1.0) + 
+                  clamp(specularTerm, 0.0, 1.0);
+                  
 }
