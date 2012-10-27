@@ -29,8 +29,8 @@ void main(void){
    vec4 flatColor = filteredColor + texColor;
    
    vec4 ambientTerm = vec4(ambient, 1) * flatColor;
-   vec4 diffuseTerm;
-   vec4 specularTerm;
+   vec4 diffuseTerm = vec4(0.0);
+   vec4 specularTerm = vec4(0.0);
    for (int i = 0; i < 2; i++) {
       diffuseTerm += dot(lightVectors[i], fixedNormal) * vec4(lightColor[i], 1);
       specularTerm += pow(clamp(dot(reflectVectors[i], eyeVector), 0.0, 1.0), shininess) * vec4(lightColor[i], 1);
@@ -38,8 +38,9 @@ void main(void){
    diffuseTerm *= flatColor * vec4(diffuse, 1.0);
    specularTerm *= vec4(specular, 1.0);
    
-   gl_FragColor = clamp(ambientTerm, 0.0, 1.0) + 
-                  clamp(diffuseTerm, 0.0, 1.0) + 
+   gl_FragColor = clamp(ambientTerm, 0.0, 1.0) +
+                  clamp(diffuseTerm, 0.0, 1.0) +
                   clamp(specularTerm, 0.0, 1.0);
+                  //diffuseTerm;
                   
 }

@@ -392,6 +392,11 @@ void render()
     glDisableVertexAttribArray(loc_color);
     glDisableVertexAttribArray(loc_tex_coord);
     glDisableVertexAttribArray(loc_tex_opacity);
+    glDisableVertexAttribArray(loc_normal);
+    glDisableVertexAttribArray(loc_ambient);
+    glDisableVertexAttribArray(loc_diffuse);
+    glDisableVertexAttribArray(loc_specular);
+    glDisableVertexAttribArray(loc_shininess);
     glBindTexture(GL_TEXTURE_2D, 0);
 
 
@@ -480,7 +485,7 @@ void updateRunning(float dt)
     }
     if (keys['2']) {
         if (lightColors[1].r == 0.0f) {
-            lightColors[1] = glm::vec3{.3, .3, 1.0};
+            lightColors[1] = glm::vec3{.3, 1.0, 0.3};
         } else {
             lightColors[1] = glm::vec3{0.0, 0.0, 0.0};
         }
