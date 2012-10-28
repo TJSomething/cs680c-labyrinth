@@ -26,6 +26,10 @@
 
 #include <stb_image.h>
 
+#include <assimp/cimport.h>
+#include <assimp/scene.h>
+#include <assimp/postprocess.h>
+
 #include "maze.h"
 #include "read_file.h"
 #include "make_unique.hpp"
@@ -45,6 +49,7 @@ struct Vertex
     GLfloat ambient[3];
     GLfloat diffuse[3];
     GLfloat specular[3];
+    GLfloat emission[3];
     GLfloat shininess;
 };
 
@@ -53,8 +58,12 @@ const int LIGHT_COUNT = 2;
 //--Evil Global variables
 int w = 640, h = 480;// Window size
 GLuint program;// The GLSL program handle
-GLuint vbo_geometry[2];// VBO handle for our geometry
-unsigned int vertexCounts[2]; // Needed for drawing
+GLuint vbo_geometry[3];// VBO handle for our geometry
+unsigned int vertexCounts[3]; // Needed for drawing
+
+// the global Assimp scene object
+const aiScene* scene = nullptr;
+GLuint scene_list = 0;
 
 //uniform locations
 GLint loc_mvpmat;// Location of the modelviewprojection matrix in the shader
@@ -99,11 +108,12 @@ glm::vec3 cameraPosition;
 
 //transform matrices
 namespace mats {
+    glm::mat4 dragon;
     glm::mat4 ball;//ball->board
 	glm::mat4 board;//board->world
 	glm::mat4 view;//world->eye
 	glm::mat4 projection;//eye->clip
-	glm::mat4 mvp[2];//premultiplied modelviewprojections
+	glm::mat4 mvp[3];//premultiplied modelviewprojections
 	glm::mat4 toWorld;
 }
 
@@ -212,6 +222,7 @@ void addTriangle(std::vector<Vertex> &geometry,
         Material m2, glm::vec3 pos2,
         Material m3, glm::vec3 pos3);
 GLint getGLLocation(const std::string &name, bool isUniform) ;
+std::vector<Vertex> recursiveRender (const aiScene &sc);
 
 //--Main
 int main(int argc, char **argv)
@@ -292,6 +303,8 @@ void render()
     mats::mvp[1] = mats::mvp[0] * mats::ball;
     mats::toWorld =
         glm::inverse(mats::view)* glm::inverse(mats::projection);
+    mats::mvp[2] = mats::projection * mats::view * mats::dragon
+            * mats::board * mats::board * mats::board;
 
     //enable the shader program
     glUseProgram(program);
@@ -299,7 +312,7 @@ void render()
     //upload the matrix to the shader
 
     //set up the Vertex Buffer Object so it can be drawn
-    for (int i = 0; i < 2; i++) {
+    for (int i = 0; i < 3; i++) {
         glUniformMatrix4fv(loc_mvpmat, 1, GL_FALSE, glm::value_ptr(mats::mvp[i]));
         glUniformMatrix4fv(loc_to_world_mat, 1, GL_FALSE,
                 glm::value_ptr(mats::toWorld));
@@ -498,6 +511,7 @@ void updateRunning(float dt)
     		glm::rotate(glm::mat4(1.0), angleX, glm::vec3(1.0f, 0.0f, 0.0f));
     mats::ball =
             glm::translate(glm::mat4(1.0f), glm::vec3(ballX, ballY, ballZ))*mats::board;
+    mats::dragon = glm::translate(glm::mat4(1.0f), glm::vec3(0, 0.0, 20))*mats::board;
 
     // Check if the ball is in a hole
     bool inHole = false;
@@ -1019,8 +1033,18 @@ bool initialize()
             glm::vec3{0,0.0,0.8});
     vertexCounts[1] = ballModel.size();
 
+    // Finally, the dragon
+    Assimp::Importer Importer;
+    if (scene == nullptr) {
+        scene = Importer.ReadFile("dragon.obj",
+                aiProcess_Triangulate | aiProcess_GenSmoothNormals |
+                aiProcess_FixInfacingNormals);
+    }
+    auto dragonModel = recursiveRender(*scene);
+    vertexCounts[2] = dragonModel.size();
+
     // Create a Vertex Buffer object to store these vertex infos on the GPU
-    glGenBuffers(2, vbo_geometry);
+    glGenBuffers(3, vbo_geometry);
     glBindBuffer(GL_ARRAY_BUFFER, vbo_geometry[0]);
     glBufferData(GL_ARRAY_BUFFER,
             geometry.size()*sizeof(Vertex),
@@ -1030,6 +1054,11 @@ bool initialize()
     glBufferData(GL_ARRAY_BUFFER,
             sizeof(Vertex) * ballModel.size(),
             ballModel.data(),
+            GL_STATIC_DRAW);
+    glBindBuffer(GL_ARRAY_BUFFER, vbo_geometry[2]);
+    glBufferData(GL_ARRAY_BUFFER,
+            sizeof(Vertex) * dragonModel.size(),
+            dragonModel.data(),
             GL_STATIC_DRAW);
     //--Geometry done
 
@@ -1133,10 +1162,12 @@ bool initialize()
     gil::png_read_and_convert_image("wood.png", textures.back());
     textures.emplace_back(1,1);
     gil::view(textures.back())(0,0) = gil::rgba8_pixel_t(0,0,0,0);
+    textures.emplace_back(1,1);
+    gil::view(textures.back())(0,0) = gil::rgba8_pixel_t(0,0,0,0);
     // Bind textures
     glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
 
-    for (int i = 0; i < 2; i++) {
+    for (int i = 0; i < 3; i++) {
         textureNames.emplace_back();
         glGenTextures(1, &textureNames.back());
         glBindTexture(GL_TEXTURE_2D, textureNames.back());
@@ -1595,6 +1626,7 @@ Vertex makeVertex(Material m, glm::vec3 pos, glm::vec3 normal) {
             {0.6, 0.6, 0.6},
             {0.4, 0.4, 0.4},
             {0.03, 0.03, 0.03},
+            {0, 0, 0},
             3
         };
         break;
@@ -1608,6 +1640,7 @@ Vertex makeVertex(Material m, glm::vec3 pos, glm::vec3 normal) {
             {0.5, 0.5, 0.5},
             {0.4, 0.4, 0.4},
             {0.03, 0.03, 0.03},
+            {0, 0, 0},
             3
         };
         break;
@@ -1621,6 +1654,7 @@ Vertex makeVertex(Material m, glm::vec3 pos, glm::vec3 normal) {
             {0.2, 0.2, 0.2},
             {0.4, 0.4, 0.4},
             {0.03, 0.03, 0.03},
+            {0, 0, 0},
             3
         };
         break;
@@ -1647,6 +1681,7 @@ Vertex makeVertex(Material m, glm::vec3 pos, glm::vec3 normal) {
             {0.4, 0.4, 0.4},
             {0.4, 0.4, 0.4},
             {.2, .2, .2},
+            {0, 0, 0},
             8
         };
         break;
@@ -1660,6 +1695,7 @@ Vertex makeVertex(Material m, glm::vec3 pos, glm::vec3 normal) {
             {0.4, 0.4, 0.4},
             {0.7, 0.7, 0.7},
             {.7, .7, .7},
+            {0, 0, 0},
             15
         };
         break;
@@ -1692,4 +1728,128 @@ GLint getGLLocation(const std::string &name, bool isUniform) {
                 std::endl;
     }
     return result;
+}
+
+Vertex getMaterial(const aiMaterial &mtl) {
+	Vertex result;
+	float c[4];
+
+	GLenum fill_mode;
+	int ret1, ret2;
+	aiColor4D diffuse;
+	aiColor4D specular;
+	aiColor4D ambient;
+	aiColor4D emission;
+	float shininess, strength;
+	int two_sided;
+	int wireframe;
+	unsigned int max;
+
+	for (int i = 0; i < 3; i++)
+	  result.diffuse[i] = 0.8f;
+	if(AI_SUCCESS == mtl.Get( AI_MATKEY_COLOR_DIFFUSE, diffuse))
+	  for (int i = 0; i < 3; i++)
+	    result.diffuse[i] = diffuse[i];
+	
+
+	for (int i = 0; i < 3; i++)
+	  result.specular[i] = 0.0f;
+	if(AI_SUCCESS == mtl.Get(AI_MATKEY_COLOR_SPECULAR, specular))
+	  for (int i = 0; i < 3; i++)
+	    result.specular[i] = specular[i];
+
+	for (int i = 0; i < 3; i++)
+	  result.ambient[i] = 0.2f;
+	if(AI_SUCCESS == mtl.Get(AI_MATKEY_COLOR_AMBIENT, ambient))
+	  for (int i = 0; i < 3; i++)
+	    result.ambient[i] = ambient[i];
+
+	for (int i = 0; i < 3; i++)
+	  result.emission[i] = 0.0f;
+	if(AI_SUCCESS == mtl.Get(AI_MATKEY_COLOR_EMISSIVE, emission))
+	  for (int i = 0; i < 3; i++)
+	    result.emission[i] = emission[i];
+
+	ret1 = mtl.Get( AI_MATKEY_SHININESS, shininess );
+	if(ret1 == AI_SUCCESS) {
+	  max = 1;
+	  ret2 = mtl.Get(AI_MATKEY_SHININESS_STRENGTH, strength);
+	  if(ret2 == AI_SUCCESS)
+	    result.shininess = shininess * strength;
+	  else
+	    result.shininess = shininess;
+	} else {
+	  result.shininess = 0;
+	  for (int i = 0; i < 3; i++)
+	    result.emission[i] = 0.0f;
+	}
+
+	return result;
+}
+
+std::vector<Vertex> recursiveRender (const aiScene &sc) {
+	std::vector<Vertex> geometry;
+	std::vector<aiNode*> matrixStack{sc.mRootNode};
+	aiMatrix4x4 matrix;
+
+	while (!matrixStack.empty()) {
+	    aiNode* node = matrixStack.back();
+	    matrixStack.pop_back();
+
+	    matrix *= node->mTransformation;
+
+		// draw all meshes assigned to this node
+		for (int n = 0; n < node->mNumMeshes; n++) {
+			aiMesh* mesh = sc.mMeshes[node->mMeshes[n]];
+
+			//Vertex prototype = getMaterial(*sc.mMaterials[mesh->mMaterialIndex]);
+			Vertex prototype = makeVertex(BALL, glm::vec3(), glm::vec3());
+
+			for (int t = 0; t < mesh->mNumFaces; t++) {
+				const struct aiFace* face = &mesh->mFaces[t];
+				//GLenum face_mode;
+                            
+				/* Probably should do this properly, but, meh.
+				 * switch(face->mNumIndices) {
+					case 1: face_mode = GL_POINTS; break;
+					case 2: face_mode = GL_LINES; break;
+					case 3: face_mode = GL_TRIANGLES; break;
+					default: face_mode = GL_POLYGON; break;
+				}*/
+
+
+				for(int i = 0; i < face->mNumIndices; i++) {
+	                Vertex v = prototype;
+					int index = face->mIndices[i];
+					if(mesh->mColors[0] != nullptr) {
+						v.color[0] = mesh->mColors[0][index].r;
+						v.color[1] = mesh->mColors[0][index].g;
+						v.color[2] = mesh->mColors[0][index].b;
+					}
+					if(mesh->mNormals != nullptr) {
+						v.normal[0] = mesh->mNormals[index].x;
+						v.normal[1] = mesh->mNormals[index].y;
+						v.normal[2] = mesh->mNormals[index].z;
+					}
+					v.position[0] = mesh->mVertices[index].x;
+					v.position[1] = mesh->mVertices[index].y;
+					v.position[2] = mesh->mVertices[index].z;
+
+	                geometry.push_back(v);
+				}
+
+
+			}
+
+		}
+
+		// draw all children
+		for (int n = 0; n < node->mNumChildren; ++n) {
+			matrixStack.push_back(node->mChildren[n]);
+		}
+
+		matrix *= node->mTransformation.Inverse();
+	}
+
+	return geometry;
 }
