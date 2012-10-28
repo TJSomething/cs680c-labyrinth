@@ -63,6 +63,7 @@ unsigned int vertexCounts[3]; // Needed for drawing
 
 // the global Assimp scene object
 const aiScene* scene = nullptr;
+std::vector<Vertex> dragonModel;
 GLuint scene_list = 0;
 
 //uniform locations
@@ -1034,14 +1035,14 @@ bool initialize()
     vertexCounts[1] = ballModel.size();
 
     // Finally, the dragon
-    Assimp::Importer Importer;
     if (scene == nullptr) {
+        Assimp::Importer Importer;
         scene = Importer.ReadFile("dragon.obj",
-                aiProcess_Triangulate | aiProcess_GenSmoothNormals |
-                aiProcess_FixInfacingNormals);
+                aiProcess_GenNormals |
+                aiProcess_OptimizeMeshes);
+        dragonModel = recursiveRender(*scene);
+        vertexCounts[2] = dragonModel.size();
     }
-    auto dragonModel = recursiveRender(*scene);
-    vertexCounts[2] = dragonModel.size();
 
     // Create a Vertex Buffer object to store these vertex infos on the GPU
     glGenBuffers(3, vbo_geometry);
@@ -1204,7 +1205,7 @@ bool initialize()
     lightPosition[0] =
             glm::vec3{0, 1, 5};
     lightColors[0] = glm::vec3{1.0, .3, .3};
-    lightPosition[1] = glm::vec3{0, 1, -5};
+    lightPosition[1] = glm::vec3{0, 5, -5};
     lightColors[1] = glm::vec3{.3, 1.0, .3};
 
     // Setup
