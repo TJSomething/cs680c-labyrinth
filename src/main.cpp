@@ -512,7 +512,9 @@ void updateRunning(float dt)
     		glm::rotate(glm::mat4(1.0), angleX, glm::vec3(1.0f, 0.0f, 0.0f));
     mats::ball =
             glm::translate(glm::mat4(1.0f), glm::vec3(ballX, ballY, ballZ))*mats::board;
-    mats::dragon = glm::translate(glm::mat4(1.0f), glm::vec3(0, 0.0, 20))*mats::board;
+    mats::dragon = glm::translate(glm::mat4(1.0f), glm::vec3(0, 0.0, 20)) *
+            glm::rotate(glm::mat4(1.0), 90.0f, glm::vec3(1.0f, 0.0f, 0.0f)) *
+            mats::board;
 
     // Check if the ball is in a hole
     bool inHole = false;
