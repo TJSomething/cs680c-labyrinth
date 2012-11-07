@@ -186,6 +186,8 @@ int endY;
 
 const float ballRadius = 0.5f;
 
+bool showDragon = true;
+
 enum States {
     RUNNING,
     WIN,
@@ -292,6 +294,13 @@ void glutPrint(float x, float y, void* font, const char* text, float r, float g,
 //--Implementations
 void render()
 {
+    int modelCount;
+    // If it's enabled, draw the dragon
+    if (showDragon)
+        modelCount = 3;
+    else
+        modelCount = 2;
+    
     //--Render the scene
 
     //clear the screen
@@ -313,7 +322,7 @@ void render()
     //upload the matrix to the shader
 
     //set up the Vertex Buffer Object so it can be drawn
-    for (int i = 0; i < 3; i++) {
+    for (int i = 0; i < modelCount; i++) {
         glUniformMatrix4fv(loc_mvpmat, 1, GL_FALSE, glm::value_ptr(mats::mvp[i]));
         glUniformMatrix4fv(loc_to_world_mat, 1, GL_FALSE,
                 glm::value_ptr(mats::toWorld));
@@ -504,6 +513,10 @@ void updateRunning(float dt)
             lightColors[1] = glm::vec3{0.0, 0.0, 0.0};
         }
         keys['2'] = 0;
+    }
+    if (keys['3']) {
+        showDragon = !showDragon;
+        keys['3'] = 0;
     }
 
     //angle += dt * M_PI/2; //move through 90 degrees a second
