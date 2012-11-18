@@ -26,4 +26,22 @@ find_package(OpenGL REQUIRED)
 find_package(GLEW REQUIRED)
 FIND_PACKAGE (Boost COMPONENTS system filesystem REQUIRED)
 
-add_subdirectory(src)
+ADD_DEFINITIONS("-std=c++0x")
+SET(CMAKE_CXX_FLAGS "")
+
+set(CORELIBS
+    ${GLUT_LIBRARY}
+    ${OPENGL_LIBRARY}
+    ${GLEW_LIBRARY}
+    Box2D
+    assimp
+    ${Boost_LIBRARIES}
+    ${PNG_LIBRARY})
+
+set (LABYRINTH_FILES ${LABYRINTH_FILES} src/main.cpp src/maze.cpp src/read_file.cpp)
+
+file(MAKE_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/bin)
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/bin)
+
+add_executable(labyrinth ${LABYRINTH_FILES})
+target_link_libraries(labyrinth ${CORELIBS})
