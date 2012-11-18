@@ -208,6 +208,8 @@ float mouseSensitivity = 0.5f;
 bool leftMouseButton = false;
 bool rightMouseButton = false;
 
+std::mt19937 gen(std::random_device().operator()());
+
 // Utility functions
 std::vector<Vertex> makeSphere(glm::vec3 center, GLfloat rad,
         unsigned int detail, glm::vec3 color);
@@ -266,10 +268,12 @@ int main(int argc, char **argv)
     {
         t1 = std::chrono::high_resolution_clock::now();
         glutMainLoop();
+        // Clean up after ourselves
+        cleanUp();
+    } else {
+        std::cout << "Initialization failure" << std::endl;
     }
 
-    // Clean up after ourselves
-    cleanUp();
     return 0;
 }
 
@@ -464,8 +468,7 @@ void render()
     glutSwapBuffers();
 }
 
-void updateRunning(float dt)
-{
+void updateRunningControls(float dt) {
     // Check the controls
     if (keys[27]) {
         lastState = state;
@@ -518,16 +521,23 @@ void updateRunning(float dt)
         showDragon = !showDragon;
         keys['3'] = 0;
     }
+}
 
-    //angle += dt * M_PI/2; //move through 90 degrees a second
+void updateRunningMatrices(float dt) {
     mats::board = //glm::translate( glm::mat4(1.0f), glm::vec3(4.0 * sin(angle), 0.0, 4.0 * cos(angle)));
-    		glm::rotate(glm::mat4(1.0), angleZ, glm::vec3(0.0f, 0.0f, 1.0f)) *
-    		glm::rotate(glm::mat4(1.0), angleX, glm::vec3(1.0f, 0.0f, 0.0f));
+            glm::rotate(glm::mat4(1.0), angleZ, glm::vec3(0.0f, 0.0f, 1.0f)) *
+            glm::rotate(glm::mat4(1.0), angleX, glm::vec3(1.0f, 0.0f, 0.0f));
     mats::ball =
             glm::translate(glm::mat4(1.0f), glm::vec3(ballX, ballY, ballZ))*mats::board;
     mats::dragon = glm::translate(glm::mat4(1.0f), glm::vec3(0, 0.0, 20)) *
             glm::rotate(glm::mat4(1.0), 90.0f, glm::vec3(1.0f, 0.0f, 0.0f)) *
             mats::board;
+}
+
+void updateRunning(float dt)
+{
+    updateRunningControls(dt);
+    updateRunningMatrices(dt);
 
     // Check if the ball is in a hole
     bool inHole = false;
@@ -543,7 +553,7 @@ void updateRunning(float dt)
     }
 
     // Check if we have a winner
-    if (! (state == PRELOSE )) {
+    if (! (state == PRELOSE)) {
         using namespace MazeParams;
         auto ballPt = phys::ball->GetWorldCenter();
         if (ballPt.x > left + cellHSize*(endX) + wallThickness &&
@@ -873,23 +883,19 @@ void mouse(int button, int state, int x, int y) {
     }
 }
 
-bool initialize()
-{
-    state = RUNNING;
-    // Reset all of the keys
+void initKeys() {
     for ( auto &key : specialKeys ) {
         key = false;
     }
     for ( auto &key : keys ) {
         key = false;
     }
+}
 
-    std::vector<Vertex> geometry;
-
+void initWoodTextureBases() {
     // For the wood, to make it look like a single block, we need to set
     // bases for the texture coordinates. We'll do it randomly, but make
     // them perpendicular.
-    std::mt19937 gen(std::random_device().operator()());
     std::uniform_real_distribution<float> dist(-1,1);
     float z = dist(gen)*0.1;
     float theta = dist(gen)*M_PI;
@@ -899,6 +905,10 @@ bool initialize()
             sqrt(1-z*z)*sin(theta), z);
     wood_tex_bases[1] = glm::vec3(glm::vec4(glm::rotate(glm::mat4(1), phi, wood_tex_bases[0]) *
             glm::vec4(glm::cross(wood_tex_bases[0], glm::vec3(0,0,1)), 0)));
+}
+
+std::vector<Vertex> makeMazeModel() {
+    std::vector<Vertex> geometry;
 
     // Add the walls
     b2BodyDef wallBodyDef;
@@ -909,7 +919,7 @@ bool initialize()
          {MazeParams::right,MazeParams::bottom}}, true);
 
     auto maze = dfsBacktracker(MazeParams::size, 0, 0, time(NULL));
-    // Build the walls to the maze
+    // Build the internal walls to the maze
     {
         using namespace MazeParams;
         int x = 0;
@@ -1042,42 +1052,18 @@ bool initialize()
     // Put the holes in the floor
     addFloor(geometry, holeLocs);
 
-    vertexCounts[0] = geometry.size();
+    return geometry;
+}
 
-    // Also, a sphere
-    auto ballModel = makeSphere(glm::vec3{0,0,0}, ballRadius, 4,
-            glm::vec3{0,0.0,0.8});
-    vertexCounts[1] = ballModel.size();
-
-    // Finally, the dragon
-    if (scene == nullptr) {
-        Assimp::Importer Importer;
-        scene = Importer.ReadFile("dragon.obj",
-                aiProcess_GenNormals |
-                aiProcess_OptimizeMeshes);
-        dragonModel = recursiveRender(*scene);
-        vertexCounts[2] = dragonModel.size();
-    }
-
-    // Create a Vertex Buffer object to store these vertex infos on the GPU
-    glGenBuffers(3, vbo_geometry);
-    glBindBuffer(GL_ARRAY_BUFFER, vbo_geometry[0]);
+void attachModelToBuffer(GLuint &vbo, const std::vector<Vertex> &model) {
+    glBindBuffer(GL_ARRAY_BUFFER, vbo);
     glBufferData(GL_ARRAY_BUFFER,
-            geometry.size()*sizeof(Vertex),
-            geometry.data(),
+            model.size()*sizeof(Vertex),
+            model.data(),
             GL_STATIC_DRAW);
-    glBindBuffer(GL_ARRAY_BUFFER, vbo_geometry[1]);
-    glBufferData(GL_ARRAY_BUFFER,
-            sizeof(Vertex) * ballModel.size(),
-            ballModel.data(),
-            GL_STATIC_DRAW);
-    glBindBuffer(GL_ARRAY_BUFFER, vbo_geometry[2]);
-    glBufferData(GL_ARRAY_BUFFER,
-            sizeof(Vertex) * dragonModel.size(),
-            dragonModel.data(),
-            GL_STATIC_DRAW);
-    //--Geometry done
+}
 
+bool initShaders() {
     GLuint vertex_shader = glCreateShader(GL_VERTEX_SHADER);
     GLuint fragment_shader = glCreateShader(GL_FRAGMENT_SHADER);
 
@@ -1099,16 +1085,16 @@ bool initialize()
     if(!shader_status)
     {
         std::cerr << "[F] FAILED TO COMPILE VERTEX SHADER!" << std::endl;
-	
+
         int errorLength;
         std::unique_ptr<char[]> error;
         glGetShaderiv(vertex_shader, GL_INFO_LOG_LENGTH, &errorLength);
-	
-	error = std::unique_ptr<char[]>(new char[errorLength]);
-	glGetShaderInfoLog(vertex_shader, errorLength, nullptr, error.get());
-	
-	std::cout << error.get() << std::endl;
-	
+
+        error = std::unique_ptr<char[]>(new char[errorLength]);
+        glGetShaderInfoLog(vertex_shader, errorLength, nullptr, error.get());
+
+        std::cout << error.get() << std::endl;
+
         return false;
     }
 
@@ -1120,16 +1106,16 @@ bool initialize()
     if(!shader_status)
     {
         std::cerr << "[F] FAILED TO COMPILE FRAGMENT SHADER!" << std::endl;
-	
+
         int errorLength;
         std::unique_ptr<char[]> error;
         glGetShaderiv(fragment_shader, GL_INFO_LOG_LENGTH, &errorLength);
-	
-	error = std::unique_ptr<char[]>(new char[errorLength]);
-	glGetShaderInfoLog(fragment_shader, errorLength, nullptr, error.get());
-	
-	std::cout << error.get() << std::endl;
-	
+
+        error = std::unique_ptr<char[]>(new char[errorLength]);
+        glGetShaderInfoLog(fragment_shader, errorLength, nullptr, error.get());
+
+        std::cout << error.get() << std::endl;
+
         return false;
     }
 
@@ -1147,6 +1133,10 @@ bool initialize()
         return false;
     }
 
+    return true;
+}
+
+void initShaderInputLocations() {
     //Now we set the locations of the attributes and uniforms
     //this allows us to access them easily while rendering
     loc_position = getGLLocation("v_position", false);
@@ -1171,7 +1161,9 @@ bool initialize()
     loc_light_positions = getGLLocation("lightPositions", true);
     loc_cam_position = getGLLocation("cameraPosition", true);
     loc_to_world_mat = getGLLocation("toWorldMatrix", true);
+}
 
+void initTextures() {
     // Load and bind textures
     // Load textures
     textures.emplace_back();
@@ -1200,11 +1192,12 @@ bool initialize()
                 gil::interleaved_view_get_raw_data(gil::view(textures[i])));
         glGenerateMipmap(GL_TEXTURE_2D);
     }
+}
 
-
+void initVPMatrices() {
     //--Init the view and projection matrices
     //  if you will be having a moving camera the view matrix will need to more dynamic
-    //  ...Like you should update it before you render more dynamic 
+    //  ...Like you should update it before you render more dynamic
     //  for this project having them static will be fine
     mats::view = glm::lookAt( glm::vec3(0.0, 21.0, -21.0), //Eye Position
                         glm::vec3(0.0, 0.0, 0.0), //Focus point
@@ -1214,30 +1207,9 @@ bool initialize()
                                    float(w)/float(h), //Aspect Ratio, so Circles stay Circular
                                    0.01f, //Distance to the near plane, normally a small value like this
                                    100.0f); //Distance to the far plane,
+}
 
-    // Initialize the lights
-    cameraPosition = glm::vec3{0.0, 21.0, -21.0};
-    lightPosition[0] =
-            glm::vec3{0, 1, 5};
-    lightColors[0] = glm::vec3{1.0, .3, .3};
-    lightPosition[1] = glm::vec3{0, 5, -5};
-    lightColors[1] = glm::vec3{.3, 1.0, .3};
-
-    // Setup
-
-    //enable depth testing
-    glEnable(GL_DEPTH_TEST);
-    glDepthFunc(GL_LESS);
-
-    // Antialiasing
-    glEnable(GL_MULTISAMPLE);
-
-    // Allow better keyboard control
-    glutIgnoreKeyRepeat(1);
-
-    // Disable the cursor
-    glutSetCursor(GLUT_CURSOR_NONE);
-
+void initPhysics() {
     // Setup physics
     // Ball
     b2BodyDef ballBodyDef;
@@ -1260,6 +1232,81 @@ bool initialize()
     phys::ball->CreateFixture(&fixtureDef);
 
     ballY = -0.5f;
+}
+
+void initModels () {
+    initWoodTextureBases();
+
+    std::vector<Vertex> tableModel = makeMazeModel();
+
+    vertexCounts[0] = tableModel.size();
+
+    // Also, a sphere
+    auto ballModel = makeSphere(glm::vec3{0,0,0}, ballRadius, 4,
+            glm::vec3{0,0.0,0.8});
+    vertexCounts[1] = ballModel.size();
+
+    // Finally, the dragon
+    if (scene == nullptr) {
+        Assimp::Importer Importer;
+        scene = Importer.ReadFile("dragon.obj", 0);
+        dragonModel = recursiveRender(*scene);
+        vertexCounts[2] = dragonModel.size();
+    }
+
+    // Create a Vertex Buffer object to store these vertex infos on the GPU
+    glGenBuffers(3, vbo_geometry);
+    attachModelToBuffer(vbo_geometry[0], tableModel);
+    attachModelToBuffer(vbo_geometry[1], ballModel);
+    attachModelToBuffer(vbo_geometry[2], dragonModel);
+}
+
+void initLights() {
+    // Initialize the lights
+    cameraPosition = glm::vec3{0.0, 21.0, -21.0};
+    lightPosition[0] =
+            glm::vec3{0, 1, 5};
+    lightColors[0] = glm::vec3{1.0, .3, .3};
+    lightPosition[1] = glm::vec3{0, 5, -5};
+    lightColors[1] = glm::vec3{.3, 1.0, .3};
+}
+
+void initGLFlags() {
+    // Setup
+
+    //enable depth testing
+    glEnable(GL_DEPTH_TEST);
+    glDepthFunc(GL_LESS);
+
+    // Antialiasing
+    glEnable(GL_MULTISAMPLE);
+
+    // Allow better keyboard control
+    glutIgnoreKeyRepeat(1);
+
+    // Disable the cursor
+    glutSetCursor(GLUT_CURSOR_NONE);
+}
+
+bool initialize()
+{
+    state = RUNNING;
+    initKeys();
+
+    initModels();
+
+    if (!initShaders()) {
+        return false;
+    }
+    initShaderInputLocations();
+    initTextures();
+    initVPMatrices();
+    initPhysics();
+
+    initLights();
+
+
+    initGLFlags();
 
 
     //and its done
