@@ -319,102 +319,107 @@ void render()
     //enable the shader program
     glUseProgram(program);
 
-    glm::mat4 modelToWorld(1);
+    std::function<void(Model&, glm::mat4)> renderSceneGraph =
+        [&](Model& current, glm::mat4 previousTransforms) {
+            // Construct matrices
+            glm::mat4 modelToWorld = previousTransforms * current.modelMatrix;
+            glm::mat4 mvpMatrix = mats::projection * mats::view * modelToWorld;
 
-    forAllModels(
-        [&](Model& current) {
-                // Construct matrices
-                modelToWorld = current.modelMatrix * modelToWorld;
-                glm::mat4 mvpMatrix = mats::projection * mats::view * modelToWorld;
+            // Copy uniforms
+            glUniformMatrix4fv(loc_mvpmat, 1, GL_FALSE, glm::value_ptr(mvpMatrix));
+            glUniformMatrix4fv(loc_to_world_mat, 1, GL_FALSE,
+                    glm::value_ptr(mats::toWorld));
+            glUniform3fv(loc_light_colors, LIGHT_COUNT, glm::value_ptr(lightColors[0]));
+            glUniform3fv(loc_light_positions, LIGHT_COUNT, glm::value_ptr(lightPosition[0]));
+            glUniform3fv(loc_cam_position, 1, glm::value_ptr(cameraPosition));
 
-                // Copy uniforms
-                glUniformMatrix4fv(loc_mvpmat, 1, GL_FALSE, glm::value_ptr(mvpMatrix));
-                glUniformMatrix4fv(loc_to_world_mat, 1, GL_FALSE,
-                        glm::value_ptr(mats::toWorld));
-                glUniform3fv(loc_light_colors, LIGHT_COUNT, glm::value_ptr(lightColors[0]));
-                glUniform3fv(loc_light_positions, LIGHT_COUNT, glm::value_ptr(lightPosition[0]));
-                glUniform3fv(loc_cam_position, 1, glm::value_ptr(cameraPosition));
+            // Bind attributes
+            glEnableVertexAttribArray(loc_position);
+            glEnableVertexAttribArray(loc_color);
+            glEnableVertexAttribArray(loc_tex_coord);
+            glEnableVertexAttribArray(loc_tex_opacity);
+            glEnableVertexAttribArray(loc_normal);
+            glEnableVertexAttribArray(loc_ambient);
+            glEnableVertexAttribArray(loc_diffuse);
+            glEnableVertexAttribArray(loc_specular);
+            glEnableVertexAttribArray(loc_shininess);
 
-                // Bind attributes
-                glEnableVertexAttribArray(loc_position);
-                glEnableVertexAttribArray(loc_color);
-                glEnableVertexAttribArray(loc_tex_coord);
-                glEnableVertexAttribArray(loc_tex_opacity);
-                glEnableVertexAttribArray(loc_normal);
-                glEnableVertexAttribArray(loc_ambient);
-                glEnableVertexAttribArray(loc_diffuse);
-                glEnableVertexAttribArray(loc_specular);
-                glEnableVertexAttribArray(loc_shininess);
+            glBindBuffer(GL_ARRAY_BUFFER, current.geometryVBO);
+            glBindTexture(GL_TEXTURE_2D, current.textureVBO);
+            //set pointers into the vbo for each of the attributes(position and color)
+            glVertexAttribPointer( loc_position,//location of attribute
+                                   3,//number of elements
+                                   GL_FLOAT,//type
+                                   GL_FALSE,//normalized?
+                                   sizeof(Vertex),//stride
+                                   0);//offset
 
-                glBindBuffer(GL_ARRAY_BUFFER, current.geometryVBO);
-                glBindTexture(GL_TEXTURE_2D, current.textureVBO);
-                //set pointers into the vbo for each of the attributes(position and color)
-                glVertexAttribPointer( loc_position,//location of attribute
-                                       3,//number of elements
-                                       GL_FLOAT,//type
-                                       GL_FALSE,//normalized?
-                                       sizeof(Vertex),//stride
-                                       0);//offset
+            glVertexAttribPointer( loc_color,
+                                   3,
+                                   GL_FLOAT,
+                                   GL_FALSE,
+                                   sizeof(Vertex),
+                                   (void*)offsetof(Vertex,color));
 
-                glVertexAttribPointer( loc_color,
-                                       3,
-                                       GL_FLOAT,
-                                       GL_FALSE,
-                                       sizeof(Vertex),
-                                       (void*)offsetof(Vertex,color));
+            glVertexAttribPointer( loc_tex_coord,
+                                   2,
+                                   GL_FLOAT,
+                                   GL_FALSE,
+                                   sizeof(Vertex),
+                                   (void*)offsetof(Vertex,tex_coord));
 
-                glVertexAttribPointer( loc_tex_coord,
-                                       2,
-                                       GL_FLOAT,
-                                       GL_FALSE,
-                                       sizeof(Vertex),
-                                       (void*)offsetof(Vertex,tex_coord));
+            glVertexAttribPointer( loc_tex_opacity,
+                                   1,
+                                   GL_FLOAT,
+                                   GL_FALSE,
+                                   sizeof(Vertex),
+                                   (void*)offsetof(Vertex,tex_opacity));
 
-                glVertexAttribPointer( loc_tex_opacity,
-                                       1,
-                                       GL_FLOAT,
-                                       GL_FALSE,
-                                       sizeof(Vertex),
-                                       (void*)offsetof(Vertex,tex_opacity));
+            glVertexAttribPointer( loc_normal,
+                                   3,
+                                   GL_FLOAT,
+                                   GL_FALSE,
+                                   sizeof(Vertex),
+                                   (void*)offsetof(Vertex,normal));
 
-                glVertexAttribPointer( loc_normal,
-                                       3,
-                                       GL_FLOAT,
-                                       GL_FALSE,
-                                       sizeof(Vertex),
-                                       (void*)offsetof(Vertex,normal));
+            glVertexAttribPointer( loc_ambient,
+                                   3,
+                                   GL_FLOAT,
+                                   GL_FALSE,
+                                   sizeof(Vertex),
+                                   (void*)offsetof(Vertex,ambient));
 
-                glVertexAttribPointer( loc_ambient,
-                                       3,
-                                       GL_FLOAT,
-                                       GL_FALSE,
-                                       sizeof(Vertex),
-                                       (void*)offsetof(Vertex,ambient));
+            glVertexAttribPointer( loc_diffuse,
+                                   3,
+                                   GL_FLOAT,
+                                   GL_FALSE,
+                                   sizeof(Vertex),
+                                   (void*)offsetof(Vertex,diffuse));
 
-                glVertexAttribPointer( loc_diffuse,
-                                       3,
-                                       GL_FLOAT,
-                                       GL_FALSE,
-                                       sizeof(Vertex),
-                                       (void*)offsetof(Vertex,diffuse));
+            glVertexAttribPointer( loc_specular,
+                                   3,
+                                   GL_FLOAT,
+                                   GL_FALSE,
+                                   sizeof(Vertex),
+                                   (void*)offsetof(Vertex,specular));
 
-                glVertexAttribPointer( loc_specular,
-                                       3,
-                                       GL_FLOAT,
-                                       GL_FALSE,
-                                       sizeof(Vertex),
-                                       (void*)offsetof(Vertex,specular));
+            glVertexAttribPointer( loc_shininess,
+                                   1,
+                                   GL_FLOAT,
+                                   GL_FALSE,
+                                   sizeof(Vertex),
+                                   (void*)offsetof(Vertex,shininess));
 
-                glVertexAttribPointer( loc_shininess,
-                                       1,
-                                       GL_FLOAT,
-                                       GL_FALSE,
-                                       sizeof(Vertex),
-                                       (void*)offsetof(Vertex,shininess));
+            glDrawArrays(current.drawMode, 0, current.geometry.size());
 
-                glDrawArrays(current.drawMode, 0, current.geometry.size());
-        }
-    );
+            for (auto &child : current.children) {
+
+                renderSceneGraph(child, modelToWorld);
+            }
+        };
+
+    for (auto &model : geometryRoot)
+        renderSceneGraph(model, glm::mat4(1.0f));
 
     //clean up
     glDisableVertexAttribArray(loc_position);
@@ -791,7 +796,7 @@ void reshape(int n_w, int n_h)
     //Update the projection matrix as well
     //See the init function for an explaination
     mats::projection = glm::perspective(45.0f, float(w)/float(h), 0.01f, 100.0f);
-
+    mats::toWorld = glm::inverse(mats::projection * mats::view);
 }
 
 void changeAngle(float x, float y)
@@ -1055,12 +1060,17 @@ Model makeMazeModel() {
     // Put the holes in the floor
     addFloor(result.geometry, holeLocs);
 
+    result.drawMode = GL_TRIANGLES;
+
     return result;
 }
 
 void attachModelToBuffer(GLuint &vbo, const std::vector<Vertex> &model) {
     glBindBuffer(GL_ARRAY_BUFFER, vbo);
-    std::cout << model.size() << std::endl;
+    //std::cout << model.size() << std::endl;
+    /*for (auto v : model) {
+        std::cout << v.position[0] << std::endl;
+    }*/
     glBufferData(GL_ARRAY_BUFFER,
             model.size()*sizeof(Vertex),
             model.data(),
@@ -1205,6 +1215,8 @@ void initVPMatrices() {
                                    float(w)/float(h), //Aspect Ratio, so Circles stay Circular
                                    0.01f, //Distance to the near plane, normally a small value like this
                                    100.0f); //Distance to the far plane,
+
+    mats::toWorld = glm::inverse(mats::projection * mats::view);
 }
 
 void initPhysics() {
@@ -1401,6 +1413,7 @@ Model makeSphere(glm::vec3 center, GLfloat rad,
                 makeVertex(BALL, glm::vec3{pt.x, pt.y, pt.z},
                         glm::vec3{pt.x, pt.y, pt.z}/rad));
     }
+    result.drawMode = GL_TRIANGLES;
     return result;
 }
 
@@ -1916,6 +1929,7 @@ Model convertAssimpScene (const aiScene &sc) {
         matrix *= node->mTransformation.Inverse();
     }
 
+    model.drawMode = GL_TRIANGLES;
     return model;
 }
 
