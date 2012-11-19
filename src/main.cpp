@@ -1277,7 +1277,7 @@ void initLights() {
             glm::vec3{0, 1, 5};
     lightColors[0] = glm::vec3{1.0, .3, .3};
     lightPosition[1] = glm::vec3{0, 5, -5};
-    lightColors[1] = glm::vec3{.3, 1.0, .3};
+    lightColors[1] = glm::vec3{.3, 1.0, 1.0};
 }
 
 void initGLFlags() {
