@@ -54,8 +54,18 @@ struct Vertex
     GLfloat shininess;
 };
 
+enum Material {
+    TOP_WOOD,
+    FLOOR_WOOD,
+    HOLE_WOOD,
+    BALL,
+    START_PANEL,
+    END_PANEL
+};
+
 struct Model {
     Model();
+    void setMaterial(Material);
     GLuint geometryVBO;
     GLuint textureVBO;
     glm::mat4 modelMatrix;
@@ -64,13 +74,6 @@ struct Model {
     std::vector<Vertex> geometry;
     GLenum drawMode;
 };
-
-Model::Model() {
-    texture = gil::rgba8_image_t(1,1);
-    gil::view(texture)(0,0) = gil::rgba8_pixel_t(0,0,0,0);
-
-    modelMatrix = glm::mat4(1);
-}
 
 std::list<Model> geometryRoot;
 
@@ -106,15 +109,6 @@ GLint loc_cam_position;
 
 // These will be used to map 3D coords to uv for the wood.
 glm::vec3 wood_tex_bases[2];
-
-enum Material {
-    TOP_WOOD,
-    FLOOR_WOOD,
-    HOLE_WOOD,
-    BALL,
-    START_PANEL,
-    END_PANEL
-};
 
 // Lighting info
 glm::vec3 lightColors[LIGHT_COUNT];
@@ -239,6 +233,7 @@ void addTriangle(std::vector<Vertex> &geometry,
 GLint getGLLocation(const std::string &name, bool isUniform) ;
 Model convertAssimpScene (const aiScene &sc);
 void forAllModels(std::function<void(Model&)>);
+void forChildModels(std::list<Model*>, std::function<void (Model &)>);
 
 //--Main
 int main(int argc, char **argv)
@@ -538,8 +533,8 @@ void updateRunningMatrices(float dt) {
             glm::translate(glm::mat4(1.0f), glm::vec3(ballX, ballY, ballZ));
     Models::dragon->modelMatrix = glm::translate(glm::mat4(1.0f), glm::vec3(0, 0.0, 20)) *
             glm::rotate(glm::mat4(1.0), 90.0f, glm::vec3(1.0f, 0.0f, 0.0f)) *
-            glm::rotate(glm::mat4(1.0), 4*angleZ, glm::vec3(0.0f, 0.0f, 1.0f)) *
-            glm::rotate(glm::mat4(1.0), 4*angleX, glm::vec3(1.0f, 0.0f, 0.0f));
+            glm::rotate(glm::mat4(1.0), 10*angleZ, glm::vec3(0.0f, 0.0f, 1.0f)) *
+            glm::rotate(glm::mat4(1.0), 10*angleX, glm::vec3(1.0f, 0.0f, 0.0f));
 }
 
 void updateRunning(float dt)
@@ -1259,10 +1254,14 @@ void initModels () {
     static const aiScene* dragonScene = nullptr;
     static Assimp::Importer Importer;
     if (dragonScene == nullptr) {
-        dragonScene = Importer.ReadFile("dragon.obj", 0);
+        dragonScene = Importer.ReadFile("dragon.obj", aiProcess_GenSmoothNormals);
     }
     geometryRoot.emplace_back(convertAssimpScene(*dragonScene));
     Models::dragon = &geometryRoot.back();
+    forChildModels(std::list<Model*>{Models::dragon},
+        [](Model &m) {
+            m.setMaterial(BALL);
+        });
 
     // Create a Vertex Buffer object to store these vertex infos on the GPU
     forAllModels([&](Model& current) {
@@ -1823,6 +1822,8 @@ Vertex getMaterial(const aiMaterial &mtl) {
     int wireframe;
     unsigned int max;
 
+
+
     for (int i = 0; i < 3; i++)
       result.diffuse[i] = 0.8f;
     if(AI_SUCCESS == mtl.Get( AI_MATKEY_COLOR_DIFFUSE, diffuse))
@@ -1865,26 +1866,72 @@ Vertex getMaterial(const aiMaterial &mtl) {
     return result;
 }
 
+gil::rgba8_image_t getMaterialTexture(const aiMaterial &mtl) {
+    aiString path;
+
+    if (mtl.GetTextureCount(aiTextureType_DIFFUSE) > 0) {
+        int w, h;
+        mtl.GetTexture(aiTextureType_DIFFUSE,
+                       0,
+                       &path);
+
+        //std::cout << path.C_Str() << std::endl;
+
+        stbi_uc *rawImage = stbi_load(path.C_Str(), &w, &h, nullptr, 4);
+
+        gil::rgba8_view_t converter =
+            gil::interleaved_view(w, h, (gil::rgba8_pixel_t*) rawImage, w*4);
+        gil::rgba8_image_t result(converter.dimensions());
+        copy_pixels(converter, gil::view(result));
+
+        stbi_image_free(rawImage);
+
+        return result;
+    } else {
+        gil::rgba8_image_t result(1,1);
+        gil::view(result)(0,0) = gil::rgba8_pixel_t(0,0,0,0);
+        return result;
+    }
+}
+
 Model convertAssimpScene (const aiScene &sc) {
     Model model;
-    std::vector<aiNode*> matrixStack{sc.mRootNode};
+    std::vector<aiNode*> nodeStack{sc.mRootNode};
+    std::vector<aiMatrix4x4> matrixStack{sc.mRootNode->mTransformation};
+    std::vector<Model*> modelStack{&model};
     aiMatrix4x4 matrix;
 
     while (!matrixStack.empty()) {
-        aiNode* node = matrixStack.back();
+        aiNode* node = nodeStack.back();
+        nodeStack.pop_back();
+
+        matrix = matrixStack.back() * node->mTransformation;
         matrixStack.pop_back();
 
-        matrix *= node->mTransformation;
+        Model *nodeModel = modelStack.back();
+        modelStack.pop_back();
 
-        // draw all meshes assigned to this node
         for (int n = 0; n < node->mNumMeshes; n++) {
+            Model *meshModel = nullptr;
+
+            if (n == 0) {
+                meshModel = nodeModel;
+            } else {
+                nodeModel->children.emplace_back();
+                meshModel = &nodeModel->children.back();
+            }
+
             aiMesh* mesh = sc.mMeshes[node->mMeshes[n]];
 
-            //Vertex prototype = getMaterial(*sc.mMaterials[mesh->mMaterialIndex]);
-            Vertex prototype = makeVertex(BALL, glm::vec3(), glm::vec3());
+            Vertex prototype = getMaterial(*sc.mMaterials[mesh->mMaterialIndex]);
+            //Vertex prototype = makeVertex(BALL, glm::vec3(), glm::vec3());
+
+            meshModel->texture =
+                    getMaterialTexture(*sc.mMaterials[mesh->mMaterialIndex]);
 
             for (int t = 0; t < mesh->mNumFaces; t++) {
                 const struct aiFace* face = &mesh->mFaces[t];
+
                 //GLenum face_mode;
 
                 /* Probably should do this properly, but, meh.
@@ -1894,6 +1941,7 @@ Model convertAssimpScene (const aiScene &sc) {
                     case 3: face_mode = GL_TRIANGLES; break;
                     default: face_mode = GL_POLYGON; break;
                 }*/
+                meshModel->drawMode = GL_TRIANGLES;
 
 
                 for(int i = 0; i < face->mNumIndices; i++) {
@@ -1913,30 +1961,43 @@ Model convertAssimpScene (const aiScene &sc) {
                     v.position[1] = mesh->mVertices[index].y;
                     v.position[2] = mesh->mVertices[index].z;
 
-                    model.geometry.push_back(v);
+                    if (mesh->HasTextureCoords(0)) {
+                        v.tex_coord[0] = mesh->mTextureCoords[0][index].x;
+                        v.tex_coord[1] = 1-mesh->mTextureCoords[0][index].y;
+                        v.tex_opacity = 1;
+                    }
+
+                    meshModel->geometry.push_back(v);
                 }
-
-
             }
 
         }
 
         // draw all children
         for (int n = 0; n < node->mNumChildren; ++n) {
-            matrixStack.push_back(node->mChildren[n]);
-        }
+            nodeStack.push_back(node->mChildren[n]);
+            matrixStack.push_back(matrix);
 
-        matrix *= node->mTransformation.Inverse();
+            nodeModel->children.emplace_back();
+            modelStack.push_back(&nodeModel->children.back());
+        }
     }
 
-    model.drawMode = GL_TRIANGLES;
     return model;
 }
 
 void forAllModels(std::function<void (Model &)> f) {
-    std::stack<Model*> modelStack;
+    std::list<Model*> rootRef;
     for (auto &model : geometryRoot) {
-        modelStack.push(&model);
+        rootRef.push_back(&model);
+    }
+    forChildModels(rootRef, f);
+}
+
+void forChildModels(std::list<Model*> root, std::function<void (Model &)> f) {
+    std::stack<Model*> modelStack;
+    for (auto model : root) {
+        modelStack.push(model);
     }
 
     while (!modelStack.empty()) {
@@ -1948,5 +2009,20 @@ void forAllModels(std::function<void (Model &)> f) {
         for (auto &child : m->children) {
             modelStack.push(&child);
         }
+    }
+}
+
+Model::Model() {
+    texture = gil::rgba8_image_t(1,1);
+    gil::view(texture)(0,0) = gil::rgba8_pixel_t(0,0,0,0);
+
+    modelMatrix = glm::mat4(1);
+}
+
+void Model::setMaterial(Material m) {
+    for (auto &v : geometry) {
+        v = makeVertex(m,
+                       glm::vec3{v.position[0], v.position[1], v.position[2]},
+                       glm::vec3{v.normal[0], v.normal[1], v.normal[2]});
     }
 }

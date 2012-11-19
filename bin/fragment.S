@@ -37,7 +37,7 @@ void main(void){
    }
    diffuseTerm *= flatColor * vec4(diffuse, 1.0);
    specularTerm *= vec4(specular, 1.0);
-   
+
    gl_FragColor = clamp(ambientTerm, 0.0, 1.0) +
                   clamp(diffuseTerm, 0.0, 1.0) +
                   clamp(specularTerm, 0.0, 1.0);

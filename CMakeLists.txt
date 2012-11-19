@@ -36,7 +36,8 @@ set(CORELIBS
     Box2D
     assimp
     ${Boost_LIBRARIES}
-    ${PNG_LIBRARY})
+    ${PNG_LIBRARY}
+    stb_image)
 
 set (LABYRINTH_FILES ${LABYRINTH_FILES} src/main.cpp src/maze.cpp src/read_file.cpp)
 
